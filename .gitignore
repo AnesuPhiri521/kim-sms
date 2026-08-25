@@ -2,3 +2,7 @@
 *.swp
 .vscode/
 .idea/
+
+# Agent scratch worktrees / unrelated local tooling — never committed
+.claude/
+.od-skills/

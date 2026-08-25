@@ -21,3 +21,16 @@ from app.models.identity import (  # noqa: F401
     User,
     UserRole,
 )
+from app.models.staff_management import (  # noqa: F401
+    Staff,
+    StaffAssignment,
+    StaffAttendance,
+    StaffDocument,
+)
+from app.models.student_information import (  # noqa: F401
+    Guardian,
+    Student,
+    StudentAcademicHistory,
+    StudentDocument,
+    StudentGuardian,
+)

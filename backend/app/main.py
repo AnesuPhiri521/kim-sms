@@ -3,7 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
-from app.routers import academics_core, auth, school_settings, system_settings, users
+from app.routers import (
+    academics_core,
+    auth,
+    school_settings,
+    staff_management,
+    student_information,
+    system_settings,
+    users,
+)
 
 app = FastAPI(title="EduManage API", version="0.1.0")
 
@@ -22,6 +30,8 @@ app.include_router(school_settings.router)
 app.include_router(system_settings.router)
 app.include_router(academics_core.router)
 app.include_router(users.router)
+app.include_router(student_information.router)
+app.include_router(staff_management.router)
 
 
 @app.get("/api/v1/health", tags=["health"])
