@@ -75,27 +75,29 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 ## Phase 1 — Student Information + Staff Management
 
 ### Backend — Student Information (doc 07)
-- [ ] `students`, `guardians`, `student_guardians`, `student_documents`, `student_academic_history` tables + migration
-- [ ] Registration endpoint (`POST /students`) incl. `admission_no` generation
-- [ ] Student list (paginated, filter by section/status/search) + profile (`GET /students/{id}`)
-- [ ] Update endpoint, section allocation/transfer endpoint (writes `student_academic_history`)
-- [ ] Withdraw/graduate status-transition endpoint (with outstanding-balance warning check against Phase 2 once it exists)
-- [ ] Guardian CRUD + link/unlink-to-student endpoints, primary/billing-contact flags
-- [ ] Duplicate-guardian detection (phone/email match) on create
-- [ ] Document upload endpoint (type/size/content validation per doc 14) + verification toggle
-- [ ] Section roster endpoint scoped to requesting teacher's assignments
-- [ ] Service-layer rule: minimum one guardian per student enforced
-- [ ] Service-layer rule: section capacity check on allocation (with override + audit)
-- [ ] Tests: registration, allocation, withdrawal, guardian linking, data-scoping (parent/teacher/student)
+- [x] `students`, `guardians`, `student_guardians`, `student_documents`, `student_academic_history` tables + migration
+- [x] Registration endpoint (`POST /students`) incl. `admission_no` generation (`ADM-<year>-<seq>`, verified live)
+- [x] Student list (paginated, filter by section/status/search) + profile (`GET /students/{id}`) — uses the `Page[T]` envelope correctly (fixes the Phase 0 gap logged above, for this module)
+- [x] Update endpoint, section allocation/transfer endpoint (writes `student_academic_history`)
+- [x] Withdraw/graduate status-transition endpoint — outstanding-balance warning check deferred until Phase 2 (fees) actually exists; transition is unconditional for now, noted in code
+- [x] Guardian CRUD + link/unlink-to-student endpoints, primary/billing-contact flags
+- [x] Duplicate-guardian detection (phone/email match) on create — surfaced as `409 POSSIBLE_DUPLICATE_GUARDIAN` naming the existing guardian, with a `force=true` bypass rather than a silent block
+- [x] Document upload endpoint (type/size/content validation per doc 14 — extension allow-list, 5MB cap, **magic-byte content sniffing**, not just extension) + verification toggle
+- [x] Section roster endpoint scoped to requesting teacher's assignments — built in two steps: the parallel-agent worktree shipped it permission-gated only (with a TODO, since Staff Management didn't exist yet in that isolated worktree); closed during merge/integration to also check the teacher's actual current-term `staff_assignments` row, with tests for both the allowed and denied paths
+- [x] Service-layer rule: minimum one guardian per student enforced
+- [x] Service-layer rule: section capacity check on allocation (with override + audit)
+- [x] Tests: registration, allocation, withdrawal, guardian linking, data-scoping (parent/teacher/student) — 14 tests
 
 ### Backend — Staff Management (doc 13)
-- [ ] `staff`, `staff_assignments`, `staff_attendance`, `staff_documents` tables + migration
-- [ ] Staff CRUD + onboarding flow (creates linked user account via invite flow)
-- [ ] Assignment CRUD (`section_id`, `staff_id`, `term_id` — no `subject_id`, one teacher teaches every subject in their class) + service-layer rule enforcing both directions: one teacher per class, one class per teacher, per term
-- [ ] Staff attendance bulk-mark endpoint
-- [ ] Staff document upload endpoint
-- [ ] Deactivation endpoint (revokes sessions via refresh-token table); requires the staff member's class assignment to be explicitly reassigned first if they have one
-- [ ] Tests: assignment scoping used correctly by permission checks, 1-teacher-1-class rule enforced both directions, reassignment requires clearing the existing assignment first
+- [x] `staff`, `staff_assignments`, `staff_attendance`, `staff_documents` tables + migration
+- [x] Staff CRUD + onboarding flow (creates linked user account via invite flow, reusing Phase 0's `routers/users.py` pattern)
+- [x] Assignment CRUD (`section_id`, `staff_id`, `term_id` — no `subject_id`, one teacher teaches every subject in their class) + service-layer rule enforcing both directions: one teacher per class, one class per teacher, per term — verified by tests asserting `SECTION_ALREADY_ASSIGNED`/`STAFF_ALREADY_ASSIGNED` (409) in each direction, and that delete-then-reassign succeeds
+- [x] Staff attendance bulk-mark endpoint (upsert-by-date)
+- [x] Staff document upload endpoint (same validation approach as student documents)
+- [x] Deactivation endpoint (revokes sessions via refresh-token table); deliberately leaves `staff_assignments` untouched — the class-reassignment-first flow is a separate explicit action, not automatic
+- [x] Tests: assignment scoping used correctly by permission checks, 1-teacher-1-class rule enforced both directions, reassignment requires clearing the existing assignment first — 16 tests, incl. unassigned-classes/unassigned-teachers report
+
+**How this phase was built**: two independent agents in isolated git worktrees (student-info and staff-mgmt touch disjoint files, so they ran genuinely in parallel), merged and integration-tested afterward — Alembic migration regenerated fresh against the verified merged model set rather than trusting an auto-appeared file of uncertain origin. 49 backend tests passing (20 Phase 0 + 14 + 16 minus overlap from a split test), ruff/mypy clean, verified live end-to-end (real registration via the API, not just `pytest`).
 
 ### Frontend
 - [ ] Student list (DataTable) + registration wizard (multi-step form)
@@ -111,8 +113,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 - [ ] Teacher self-service "my class"/"my profile" view
 
 ### Cross-cutting
-- [ ] Enrollment/staff-directory reports (doc 07/13 "Reports" sections)
-- [ ] End-to-end test: register a student, assign a teacher, confirm roster visibility matches assignment
+- [x] Staff-directory + unassigned-classes/unassigned-teachers reports built with Staff Management; student-enrollment reports (doc 07 "Reports") not yet built — deferred, not blocking
+- [x] End-to-end test: register a student, assign a teacher to their section, confirm roster visibility matches assignment (test_section_roster_visible_to_the_sections_own_assigned_teacher) + confirm it's denied without one (test_section_roster_gated_by_view_class_permission)
 
 ---
 
