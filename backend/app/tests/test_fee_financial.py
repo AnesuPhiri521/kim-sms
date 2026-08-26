@@ -599,3 +599,30 @@ def test_receipt_pdf_downloads_after_payment(
     assert pdf.status_code == 200, pdf.text
     assert pdf.headers["content-type"] == "application/pdf"
     assert len(pdf.content) > 0
+
+
+# ------------------------------------------------------- notification triggers --
+
+
+def test_invoice_generation_and_payment_notify_the_guardian(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict, seeded_db: Session
+) -> None:
+    admin = login_as("admin")
+    guardian_user = create_user_with_role(seeded_db, "parent", "notify-guardian@example.com")
+    fee_setup["guardian"].user_id = guardian_user.id
+    seeded_db.commit()
+
+    structure = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _generate_invoices(client, admin, structure["id"])
+    student_id = fee_setup["student"].id
+    _pay(client, admin, student_id, 5000, idem="notify-payment")
+
+    guardian_login = client.post(
+        "/api/v1/auth/login", json={"email": "notify-guardian@example.com", "password": "Password123!"}
+    )
+    guardian_headers = {"Authorization": f"Bearer {guardian_login.json()['access_token']}"}
+    notifications = client.get("/api/v1/notifications?category=fees", headers=guardian_headers)
+    assert notifications.status_code == 200, notifications.text
+    titles = {row["title"] for row in notifications.json()["data"]}
+    assert "New fee invoice" in titles
+    assert "Payment received" in titles

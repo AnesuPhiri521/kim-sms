@@ -34,6 +34,7 @@ from app.models.attendance import (
 from app.models.staff_management import Staff, StaffAssignment
 from app.models.student_information import Guardian, Student, StudentGuardian
 from app.schemas.attendance import ATTENDANCE_STATUSES, AttendanceRecordEntry, AttendanceRecordRowResult
+from app.services import communication as communication_service
 from app.services.audit_service import AuditService
 from app.services.settings_service import SettingsService
 
@@ -319,9 +320,7 @@ def bulk_mark(
             db.add(record)
             db.flush()
             _refresh_daily_summary(db, entry.student_id, session_row.date, current_user.id)
-            results.append(
-                AttendanceRecordRowResult(student_id=entry.student_id, success=True, id=record.id)
-            )
+            results.append(AttendanceRecordRowResult(student_id=entry.student_id, success=True, id=record.id))
         else:
             # Editing an already-marked record — subject to the lock window.
             if locked and not current_user.has_permission("attendance:edit_locked"):
@@ -357,7 +356,19 @@ def bulk_mark(
 
     current_term_id = db.scalar(select(Term.id).where(Term.is_current.is_(True)))
     if current_term_id is not None:
-        run_absenteeism_detection(db, current_term_id)
+        new_flags = run_absenteeism_detection(db, current_term_id)
+        # doc 10 feature 4 trigger: "Attendance: absenteeism flag raised".
+        for flag in new_flags:
+            communication_service.notify_student_and_guardians(
+                db,
+                student_id=flag.student_id,
+                category="attendance",
+                title="Attendance concern raised",
+                body=f"Attendance has crossed the school's threshold ({flag.consecutive_absences} "
+                f"consecutive absences, {flag.attendance_rate:.1f}% attendance rate this term).",
+                related_entity_type="absenteeism_flag",
+                related_entity_id=flag.id,
+            )
 
     return results
 
@@ -390,9 +401,7 @@ def edit_record(
                 status_code=409,
             )
     elif not current_user.has_permission("attendance:edit"):
-        raise AppError(
-            "PERMISSION_DENIED", "Missing required permission: attendance:edit", status_code=403
-        )
+        raise AppError("PERMISSION_DENIED", "Missing required permission: attendance:edit", status_code=403)
 
     before = {"status": record.status, "remarks": record.remarks}
     if status is not None:
@@ -773,4 +782,16 @@ def review_excuse_request(
 
     db.commit()
     db.refresh(excuse)
+
+    # doc 10 feature 4 trigger: "Attendance: excuse-request outcome".
+    outcome = "approved" if approve else "rejected"
+    communication_service.notify_student_and_guardians(
+        db,
+        student_id=record.student_id,
+        category="attendance",
+        title=f"Excuse request {outcome}",
+        body=f"Your excuse request for {session_row.date.isoformat()} was {outcome}.",
+        related_entity_type="excuse_request",
+        related_entity_id=excuse.id,
+    )
     return excuse

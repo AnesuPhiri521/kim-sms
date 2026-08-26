@@ -168,6 +168,12 @@ def test_publish_gate_hides_results_until_published(
     assert len(after_publish.json()) == 1
     assert after_publish.json()[0]["score_obtained"] == 85
 
+    # doc 10 feature 4 trigger: publishing notifies the student directly
+    # (they have their own login here, no guardian needed).
+    notifications = client.get("/api/v1/notifications?category=academics", headers=student_headers)
+    assert notifications.status_code == 200, notifications.text
+    assert any(row["title"] == "Exam results published" for row in notifications.json()["data"])
+
 
 def test_report_card_compile_blocks_on_missing_marks_then_succeeds(
     client: TestClient, login_as: Callable[[str], dict], exam_setup: dict, seeded_db: Session
@@ -314,3 +320,8 @@ def test_report_card_pdf_available_after_publish_denied_before(
 
     admin_pdf = client.get(f"/api/v1/report-cards/{report_card_id}.pdf", headers=admin)
     assert admin_pdf.status_code == 200, admin_pdf.text
+
+    # doc 10 feature 4 trigger: publishing the report card notifies the student.
+    notifications = client.get("/api/v1/notifications?category=academics", headers=student_headers)
+    assert notifications.status_code == 200, notifications.text
+    assert any(row["title"] == "Report card published" for row in notifications.json()["data"])

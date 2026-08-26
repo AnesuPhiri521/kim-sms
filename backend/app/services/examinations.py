@@ -33,6 +33,7 @@ from app.models.examinations import (
 )
 from app.models.student_information import Guardian, Student, StudentGuardian
 from app.schemas.examinations import ExamResultBulkEntry, ExamResultRowResult, ReportCardCommentUpsert
+from app.services import communication as communication_service
 from app.services.academic_performance import (
     assert_owns_section,
     compute_weighted_term_average,
@@ -322,6 +323,25 @@ def publish_exam(db: Session, current_user: CurrentUser, exam: Exam) -> Exam:
     )
     db.commit()
     db.refresh(exam)
+
+    # doc 10 feature 4 trigger: "Examinations: result published".
+    student_ids = db.scalars(
+        select(ExamResult.student_id)
+        .join(ExamSchedule, ExamResult.exam_schedule_id == ExamSchedule.id)
+        .where(ExamSchedule.exam_id == exam.id)
+        .distinct()
+    ).all()
+    for student_id in student_ids:
+        communication_service.notify_student_and_guardians(
+            db,
+            student_id=student_id,
+            category="academics",
+            title="Exam results published",
+            body=f"Results for '{exam.name}' have been published.",
+            related_entity_type="exam",
+            related_entity_id=exam.id,
+        )
+
     return exam
 
 
@@ -756,6 +776,19 @@ def publish_report_cards_for_section(
     db.commit()
     for rc in cohort_report_cards:
         db.refresh(rc)
+
+    # doc 10 feature 4 trigger: "Examinations: report card published".
+    for rc in cohort_report_cards:
+        communication_service.notify_student_and_guardians(
+            db,
+            student_id=rc.student_id,
+            category="academics",
+            title="Report card published",
+            body="Your report card for this term has been published.",
+            related_entity_type="report_card",
+            related_entity_id=rc.id,
+        )
+
     return cohort_report_cards
 
 

@@ -440,6 +440,11 @@ def test_excuse_request_approval_flips_status_to_excused(
     history = client.get(f"/api/v1/students/{student.id}/attendance", headers=teacher_headers)
     assert history.json()["data"][0]["status"] == "excused"
 
+    # doc 10 feature 4 trigger: excuse-request outcome notifies the parent.
+    notifications = client.get("/api/v1/notifications?category=attendance", headers=parent_headers)
+    assert notifications.status_code == 200, notifications.text
+    assert any(row["title"] == "Excuse request approved" for row in notifications.json()["data"])
+
     # A second review of the same request is rejected.
     reject_again = client.post(f"/api/v1/excuse-requests/{excuse_id}/reject", headers=teacher_headers)
     assert reject_again.status_code == 409

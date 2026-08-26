@@ -213,6 +213,62 @@ class NotificationService:
         return notification
 
 
+# ------------------------------------------------------------ trigger helper --
+
+
+def notify_student_and_guardians(
+    db: Session,
+    *,
+    student_id: str,
+    category: str,
+    title: str,
+    body: str,
+    related_entity_type: str | None = None,
+    related_entity_id: str | None = None,
+) -> None:
+    """The one-student equivalent of `resolve_audience_user_ids`'s
+    "section" case (guardians with portal access + the student's own
+    login, if any) — this is what every other module's trigger point
+    (doc 10 feature 4: fee/attendance/academics/exam events) calls
+    through rather than resolving recipients itself. Never raises: a
+    notification failure must not roll back the business transaction
+    that triggered it (same principle as `NotificationService.send`
+    never letting an email failure block the in-app row, one level up).
+    """
+
+    try:
+        recipient_ids: set[str] = set()
+        student = db.get(Student, student_id)
+        if student is not None and student.user_id:
+            recipient_ids.add(student.user_id)
+
+        guardian_user_ids = db.scalars(
+            select(Guardian.user_id)
+            .join(StudentGuardian, StudentGuardian.guardian_id == Guardian.id)
+            .where(
+                StudentGuardian.student_id == student_id,
+                StudentGuardian.is_active.is_(True),
+                Guardian.user_id.is_not(None),
+            )
+        ).all()
+        recipient_ids.update(uid for uid in guardian_user_ids if uid)
+
+        for user_id in recipient_ids:
+            NotificationService.send(
+                db,
+                user_id=user_id,
+                category=category,
+                title=title,
+                body=body,
+                related_entity_type=related_entity_type,
+                related_entity_id=related_entity_id,
+            )
+    except Exception:
+        logger.exception(
+            "notify_student_and_guardians failed for student_id=%s category=%s", student_id, category
+        )
+
+
 # --------------------------------------------------------- notifications --
 
 

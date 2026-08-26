@@ -55,6 +55,7 @@ from app.schemas.fee_financial import (
     TermFeeSummaryRow,
     VoidPaymentRequest,
 )
+from app.services import communication as communication_service
 from app.services import fee_financial as service
 from app.services.audit_service import AuditService
 from app.services.settings_service import SettingsService
@@ -266,6 +267,21 @@ def generate_invoices(
     structure = _get_or_404(db, FeeStructure, structure_id, "Fee structure")
     created, skipped = service.generate_invoices(db, structure, current_user.id)
     db.commit()
+    # doc 10 feature 4 trigger: "Fee: invoice generated". Fired after
+    # commit — only notify once the invoices are durably persisted.
+    if created:
+        currency_code = _currency_code(db)
+        for invoice in created:
+            communication_service.notify_student_and_guardians(
+                db,
+                student_id=invoice.student_id,
+                category="fees",
+                title="New fee invoice",
+                body=f"A new invoice of {currency_code} {invoice.amount_due_cents / 100:.2f} has been "
+                f"generated, due {invoice.due_date.isoformat()}.",
+                related_entity_type="fee_invoice",
+                related_entity_id=invoice.id,
+            )
     return GenerateInvoicesResult(
         fee_structure_id=structure.id, invoices_created=len(created), invoices_skipped=skipped
     )
@@ -360,6 +376,21 @@ def record_payment(
     )
     db.commit()
     db.refresh(payment)
+    # doc 10 feature 4 trigger: "Fee: payment received (receipt)". Minor
+    # known simplification: an idempotency-key retry re-notifies (the
+    # early-return-on-existing-key path in `record_payment` doesn't
+    # signal "this was a replay, not a new payment") — acceptable, a
+    # duplicate confirmation on a rare client retry is low-cost.
+    currency_code = _currency_code(db)
+    communication_service.notify_student_and_guardians(
+        db,
+        student_id=payment.student_id,
+        category="fees",
+        title="Payment received",
+        body=f"A payment of {currency_code} {payment.amount_cents / 100:.2f} was received. Thank you.",
+        related_entity_type="fee_payment",
+        related_entity_id=payment.id,
+    )
     return payment
 
 
