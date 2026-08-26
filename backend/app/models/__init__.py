@@ -23,6 +23,13 @@ from app.models.attendance import (  # noqa: F401
     AttendanceSession,
     ExcuseRequest,
 )
+from app.models.communication import (  # noqa: F401
+    Announcement,
+    Event,
+    Notification,
+    NotificationPreference,
+    NotificationTemplate,
+)
 from app.models.examinations import (  # noqa: F401
     Exam,
     ExamResult,

@@ -8,6 +8,7 @@ from app.routers import (
     academics_core,
     attendance,
     auth,
+    communication,
     examinations,
     fee_financial,
     school_settings,
@@ -40,6 +41,7 @@ app.include_router(attendance.router)
 app.include_router(fee_financial.router)
 app.include_router(academic_performance.router)
 app.include_router(examinations.router)
+app.include_router(communication.router)
 
 
 @app.get("/api/v1/health", tags=["health"])
