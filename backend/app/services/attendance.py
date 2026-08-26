@@ -354,6 +354,11 @@ def bulk_mark(
             )
 
     db.commit()
+
+    current_term_id = db.scalar(select(Term.id).where(Term.is_current.is_(True)))
+    if current_term_id is not None:
+        run_absenteeism_detection(db, current_term_id)
+
     return results
 
 
@@ -586,9 +591,10 @@ def run_absenteeism_detection(db: Session, term_id: str) -> list[AbsenteeismFlag
     """Doc 09 feature 4 — scans `attendance_daily_summary` for the term and
     flags students crossing `absenteeism_consecutive_absences_trigger`
     consecutive absences or below `absenteeism_rate_trigger_pct` attendance
-    rate. Deliberately a plain callable (not wired to a scheduler — that
-    infra doesn't exist in this codebase yet, see doc 02); a scheduler can
-    call this later.
+    rate. Called inline from `bulk_mark` for the current term (no scheduler
+    infra exists yet, see doc 02) rather than run on a schedule — cheap
+    enough at this school's scale, and idempotent so re-running after every
+    mark is safe.
 
     Never opens a second active flag for a (student, term) pair that
     already has one open.

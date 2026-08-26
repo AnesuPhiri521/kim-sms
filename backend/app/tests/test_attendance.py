@@ -363,13 +363,20 @@ def test_absenteeism_detection_flags_consecutive_absences_without_duplicating(
         assert bulk.status_code == 200, bulk.text
         assert bulk.json()["results"][0]["success"] is True
 
-    flags = service.run_absenteeism_detection(seeded_db, setup["term"].id)
-    assert len(flags) == 1
-    assert flags[0].student_id == student.id
-    assert flags[0].consecutive_absences >= 3
+    # Detection runs inline from `bulk_mark` itself (doc 09 feature 4), so
+    # the 3rd absence above should already have opened the flag with no
+    # separate call needed.
+    seeded_db.expire_all()
+    open_flags = (
+        seeded_db.query(AbsenteeismFlag)
+        .filter(AbsenteeismFlag.student_id == student.id, AbsenteeismFlag.is_active.is_(True))
+        .all()
+    )
+    assert len(open_flags) == 1
+    assert open_flags[0].consecutive_absences >= 3
 
-    # Running detection again must not open a second flag for the same
-    # (student, term) while one is already open.
+    # Re-running detection directly must not open a second flag for the
+    # same (student, term) while one is already open.
     flags_again = service.run_absenteeism_detection(seeded_db, setup["term"].id)
     assert flags_again == []
 
