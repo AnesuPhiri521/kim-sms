@@ -10,6 +10,20 @@ from app.models.academics_core import (  # noqa: F401
     Subject,
     Term,
 )
+from app.models.fee_financial import (  # noqa: F401
+    Discount,
+    FeeCategory,
+    FeeCredit,
+    FeeCreditApplication,
+    FeeInvoice,
+    FeeLedger,
+    FeePayment,
+    FeePaymentAllocation,
+    FeeStructure,
+    Receipt,
+    StudentDiscount,
+    StudentFeeOverride,
+)
 from app.models.identity import (  # noqa: F401
     AuditLog,
     Permission,

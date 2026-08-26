@@ -6,6 +6,7 @@ from app.core.errors import register_exception_handlers
 from app.routers import (
     academics_core,
     auth,
+    fee_financial,
     school_settings,
     staff_management,
     student_information,
@@ -32,6 +33,7 @@ app.include_router(academics_core.router)
 app.include_router(users.router)
 app.include_router(student_information.router)
 app.include_router(staff_management.router)
+app.include_router(fee_financial.router)
 
 
 @app.get("/api/v1/health", tags=["health"])
