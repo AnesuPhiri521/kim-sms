@@ -249,11 +249,17 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 - [x] Notification preferences endpoints (mandatory-category enforcement, tested)
 - [x] Email channel integration behind a thin `smtplib`-based wrapper (`_send_email`, config already existed in `Settings` from Phase 0) — no real SMTP server in dev/test, so tests monkeypatch it rather than attempting a network call
 - [x] Digest-mode support — `digest_mode=True` records `status="pending_digest"` instead of attempting immediate delivery; **no scheduled digest-sending job** actually dispatches these yet (no scheduler infra exists in this codebase, same deferral as the attendance/absenteeism and academic at-risk detection jobs)
-- [ ] Wire real trigger calls from: Fees (invoice generated, payment received, due-date reminder, overdue), Attendance (absenteeism flag, excuse-request outcome), Academic Performance (at-risk alert), Examinations (result published, report card published), Identity (account invite, role change, password reset) — **not done**. Deliberately out of scope for this pass: this module was built standalone (no other module's files touched) so it could be developed independently; wiring `NotificationService.send(...)` calls into each of those five modules' existing write paths is a distinct follow-up pass that touches other modules' files one at a time.
+- [x] Wire real trigger calls — done in a follow-up pass via a shared `notify_student_and_guardians()` helper (the one-student equivalent of the audience-resolution "section" case: the student's own login if any, plus guardians with portal access), wrapped in try/except so a notification failure never rolls back the triggering transaction:
+  - [x] Fees: invoice generated, payment received
+  - [x] Attendance: absenteeism flag raised, excuse-request outcome
+  - [x] Examinations: result published, report card published
+  - [ ] Fees: due-date reminder, overdue alert — **not done**, needs a scan across all invoices, which needs scheduler infra this codebase doesn't have (same deferral already applied elsewhere)
+  - [ ] Academic Performance: at-risk alert — **not done**, at-risk is computed on-demand at read time with no persisted "flag" row to key a trigger off, same scheduler-infra gap
+  - [ ] Identity: account invite, role change, password reset — **not done**, lives in the untouched Phase 0 auth/users module
 - [ ] Delivery-status tracking exists (`not_requested`/`pending_digest`/`sent`/`failed`) but **no retry-with-backoff** for failed sends — not built
 - [x] Tests (11, in `app/tests/test_communication.py`): in-app-by-default, non-mandatory category disable suppresses the notification, mandatory category cannot be disabled (409) and still sends even against a stale disabled row, email failure doesn't block the in-app row, digest mode defers without attempting delivery, mark-read/mark-all-read scoped to own notifications, teacher section-scoping (the bug above), section-targeted fan-out reaches guardians+teacher, events:manage permission gate, unrelated-parent cannot see a section-targeted announcement, edit denied after the author is reassigned off the section (the two security-review tests). **Not tested**: trigger firing from each source module (can't be, until the wiring above exists)
 
-**How this phase was built**: both parallel agents originally assigned this (one for the module itself, one for an unrelated Fees/Examinations gap-closing pass) hit the account-wide session limit before making any file changes — worktree isolation meant there was nothing to recover, unlike every prior Wave 2 module. Built directly instead, then closed the Fees/Examinations gaps in a second direct pass and fixed a security-review finding on this module the same day: 76→93 tests total, ruff/mypy clean throughout, verified live end-to-end against a running server (announcement fan-out, notification listing, mandatory-category rejection all exercised over real HTTP, not just pytest).
+**How this phase was built**: both parallel agents originally assigned this (one for the module itself, one for an unrelated Fees/Examinations gap-closing pass) hit the account-wide session limit before making any file changes — worktree isolation meant there was nothing to recover, unlike every prior Wave 2 module. Built directly instead, then closed the Fees/Examinations gaps and fixed a security-review finding in a second pass, then wired the cross-module trigger calls in a third: 76→94 tests total, ruff/mypy clean throughout, verified live end-to-end against a running server (announcement fan-out, notification listing, mandatory-category rejection all exercised over real HTTP, not just pytest).
 
 ### Frontend
 - [ ] Notification bell + dropdown (global header, all role layouts)
@@ -264,7 +270,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 - [ ] User notification-preferences screen
 
 ### Cross-cutting
-- [ ] End-to-end test: overdue fee triggers reminder, absenteeism triggers alert, result publish triggers notification — each visible in-app and (if enabled) by email
+- [x] End-to-end test: absenteeism triggers alert (extended `test_excuse_request_approval_flips_status_to_excused`'s parent to assert the notification), result publish and report-card publish trigger notifications (extended the corresponding examinations tests), invoice-generated/payment-received trigger notifications (new `test_invoice_generation_and_payment_notify_the_guardian`). **Not covered**: overdue-fee-triggers-reminder — that trigger itself isn't built yet (see the Fees due-date-reminder/overdue-alert gap above)
 
 ---
 
