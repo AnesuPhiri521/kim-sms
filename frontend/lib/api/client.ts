@@ -4,16 +4,17 @@ import { authStore } from "@/lib/auth/store";
 // Thin fetch wrapper — the single place every API call goes through
 // (doc 03 "API access only through a single typed client").
 //
-// NOTE on the response envelope (doc 06): the actual backend routers this
-// app talks to (auth, school-settings, system-settings, academics-core —
-// verified against ../backend/app source, not guessed) return the bare
-// resource/array as JSON on success; only the *error* envelope
-// (`{"error":{"code","message","field_errors"?}}`) is implemented so far.
-// This client unwraps errors accordingly and returns success bodies as-is,
-// typed by each call site. If/when list endpoints adopt the `{data,meta}`
-// envelope (schemas/common.py's `Page[T]` exists but isn't wired into any
-// router yet), the resource-specific client files are the only place that
-// needs to change.
+// NOTE on the response envelope (doc 06): the Phase 0 backend routers this
+// app talked to (auth, school-settings, system-settings, academics-core)
+// return the bare resource/array as JSON on success. The Phase 1 modules
+// (student-information, staff-management — verified against
+// ../backend/app source) DO use the `{data, meta}` `Page[T]` envelope from
+// schemas/common.py on every list endpoint; lib/api/student-information.ts
+// and lib/api/staff-management.ts parse that shape directly via
+// lib/schemas/common.ts's `pageSchema()`. Either way, only the *error*
+// envelope (`{"error":{"code","message","field_errors"?}}`) is handled
+// here — this client unwraps errors and returns success bodies as-is,
+// typed/parsed by each call site.
 
 export type FieldError = { field: string; message: string };
 
@@ -64,7 +65,11 @@ async function parseErrorBody(
 
 async function rawFetch(path: string, options: RequestOptions): Promise<Response> {
   const headers = new Headers(options.headers);
-  if (options.body !== undefined && !headers.has("Content-Type")) {
+  // Multipart uploads (student/staff document upload endpoints) pass a
+  // FormData body — never JSON-stringify it and never set a Content-Type
+  // ourselves, since the browser must generate the multipart boundary.
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (options.body !== undefined && !isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (!options.skipAuth) {
@@ -79,7 +84,12 @@ async function rawFetch(path: string, options: RequestOptions): Promise<Response
     // scoped by the backend (path=/api/v1/auth), so this is harmless for
     // non-auth calls and required for the refresh cookie on auth calls.
     credentials: "include",
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body:
+      options.body === undefined
+        ? undefined
+        : isFormData
+          ? (options.body as FormData)
+          : JSON.stringify(options.body),
   });
 }
 
