@@ -101,18 +101,18 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 
 ### Frontend
 - [x] Student list (DataTable) + registration wizard (multi-step form) — verified live against the real Phase 1 backend; API client/schema/hook layer (`lib/api`, `lib/schemas`, `hooks`) for both Student Information and Staff Management built alongside it, reused by the screens below
-- [ ] Student profile page (tabs: Overview/Guardians/Documents/Attendance-placeholder/Fees-placeholder/Academics-placeholder)
-- [ ] Guardian directory + link-to-student UI
-- [ ] Document upload/verify UI
-- [ ] Class-section allocation/transfer UI + withdrawal flow
-- [ ] Teacher: read-only roster view for their one assigned class
-- [ ] Parent/Student: simplified read-only profile view
-- [ ] Staff directory (DataTable) + staff profile (tabs: Overview/Assignment/Attendance/Documents)
-- [ ] Assignment list (one row per class, single teacher-select dropdown — not a matrix) with unassigned-classes/unassigned-teachers callouts
-- [ ] Staff attendance register UI
-- [ ] Teacher self-service "my class"/"my profile" view
+- [x] Student profile page (tabs: Overview/Guardians/Documents/Academic History) — handles `409 POSSIBLE_DUPLICATE_GUARDIAN` (link-existing vs. create-anyway dialog) and `409 SECTION_CAPACITY_EXCEEDED` (explicit force-confirm) rather than surfacing a raw error
+- [x] Guardian directory + link-to-student UI — built into the student profile's Guardians tab rather than a standalone directory screen (guardians are always accessed via a student in this school's workflow; no separate top-level guardian search was in the doc's screen list)
+- [x] Document upload/verify UI — student and staff documents both built, with client-side file-type pre-check before the multipart upload
+- [x] Class-section allocation/transfer UI + withdrawal flow — withdrawal behind a `ConfirmDialog` stating the real consequence
+- [x] Teacher: read-only roster view for their one assigned class
+- [ ] Parent/Student: simplified read-only profile view — not yet built
+- [x] Staff directory (DataTable) + staff profile (tabs: Overview/Assignment/Attendance/Documents)
+- [x] Assignment list (one row per section, single teacher-select dropdown — not a matrix) with unassigned-classes/unassigned-teachers callouts; reassignment surfaces the backend's `409 SECTION_ALREADY_ASSIGNED`/`STAFF_ALREADY_ASSIGNED` as a clear message
+- [ ] Staff attendance register UI — not yet built (staff profile shows attendance history read-only; the mark/register screen itself is separate and still pending)
+- [x] Teacher self-service "my class"/"my profile" view
 
-**Frontend status**: recovered from an agent that hit a session-limit mid-task; what it left behind (student list + wizard + API/schema/hook layer) was verified with a clean `npm run build` before committing. The remaining Phase 1 screens above are in progress in a follow-up pass.
+**Frontend status**: both this pass and the earlier one were recovered from agents that hit the same account-wide session limit — the first died mid-task (left the student list/wizard/API layer, verified and committed), the second died right after finishing (left all 5 remaining screens fully working, verified with a clean `npm run build` across all 21 routes and `eslint` before committing). Phase 1 frontend is functionally complete except the Parent/Student simplified view and the dedicated staff attendance register screen.
 
 ### Cross-cutting
 - [x] Staff-directory + unassigned-classes/unassigned-teachers reports built with Staff Management; student-enrollment reports (doc 07 "Reports") not yet built — deferred, not blocking
