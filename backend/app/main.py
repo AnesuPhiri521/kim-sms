@@ -7,6 +7,7 @@ from app.routers import (
     academics_core,
     attendance,
     auth,
+    fee_financial,
     school_settings,
     staff_management,
     student_information,
@@ -34,6 +35,7 @@ app.include_router(users.router)
 app.include_router(student_information.router)
 app.include_router(staff_management.router)
 app.include_router(attendance.router)
+app.include_router(fee_financial.router)
 
 
 @app.get("/api/v1/health", tags=["health"])
