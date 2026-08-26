@@ -4,9 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.routers import (
+    academic_performance,
     academics_core,
     attendance,
     auth,
+    examinations,
     fee_financial,
     school_settings,
     staff_management,
@@ -36,6 +38,8 @@ app.include_router(student_information.router)
 app.include_router(staff_management.router)
 app.include_router(attendance.router)
 app.include_router(fee_financial.router)
+app.include_router(academic_performance.router)
+app.include_router(examinations.router)
 
 
 @app.get("/api/v1/health", tags=["health"])

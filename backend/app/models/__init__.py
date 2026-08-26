@@ -2,6 +2,12 @@
 `Base.metadata.create_all` (tests) can discover all tables.
 """
 
+from app.models.academic_performance import (  # noqa: F401
+    Assessment,
+    AssessmentType,
+    GradingScale,
+    StudentScore,
+)
 from app.models.academics_core import (  # noqa: F401
     AcademicYear,
     ClassSubject,
@@ -16,6 +22,13 @@ from app.models.attendance import (  # noqa: F401
     AttendanceRecord,
     AttendanceSession,
     ExcuseRequest,
+)
+from app.models.examinations import (  # noqa: F401
+    Exam,
+    ExamResult,
+    ExamSchedule,
+    ReportCard,
+    ReportCardComment,
 )
 from app.models.fee_financial import (  # noqa: F401
     Discount,
