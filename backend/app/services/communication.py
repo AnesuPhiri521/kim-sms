@@ -249,6 +249,93 @@ def _teacher_current_section_id(db: Session, user_id: str) -> str | None:
     )
 
 
+def _visible_section_ids_for_user(db: Session, current_user: CurrentUser) -> set[str]:
+    """Sections a user is personally connected to, for read-side audience
+    filtering — as the assigned teacher, as a guardian of an
+    active/currently-enrolled student in the section, or as the student
+    themself. Used by `list_announcements`/`list_events` (not the same
+    thing as `assert_can_target_audience`, which is a *write*-side
+    restriction on who a Teacher may broadcast to).
+    """
+
+    section_ids: set[str] = set()
+    teacher_section = _teacher_current_section_id(db, current_user.id)
+    if teacher_section:
+        section_ids.add(teacher_section)
+
+    guardian_section_ids = db.scalars(
+        select(Student.current_section_id)
+        .join(StudentGuardian, StudentGuardian.student_id == Student.id)
+        .join(Guardian, StudentGuardian.guardian_id == Guardian.id)
+        .where(
+            Guardian.user_id == current_user.id,
+            StudentGuardian.is_active.is_(True),
+            Student.current_section_id.is_not(None),
+        )
+    ).all()
+    section_ids.update(sid for sid in guardian_section_ids if sid)
+
+    own_section = db.scalar(select(Student.current_section_id).where(Student.user_id == current_user.id))
+    if own_section:
+        section_ids.add(own_section)
+
+    return section_ids
+
+
+def _visible_audience_filter(
+    model: type[Announcement] | type[Event], current_user: CurrentUser, visible_section_ids: set[str]
+):
+    """A SQLAlchemy boolean expression: does this row's audience scope
+    include `current_user`? Shared by `list_announcements`/`list_events`
+    (doc 10: users should only ever see broadcasts actually addressed to
+    them — school-wide, their own role, a section they're personally
+    connected to, or sent to them individually — plus anything they
+    authored themselves). `Announcement`/`Event` share identical
+    audience-column names, so one implementation covers both.
+    """
+
+    from sqlalchemy import or_
+
+    conditions = [
+        model.audience_type == "school_wide",
+        model.audience_role_code.in_(current_user.role_codes),
+        model.audience_user_id == current_user.id,
+        model.created_by == current_user.id,
+    ]
+    if visible_section_ids:
+        conditions.append(model.audience_section_id.in_(visible_section_ids))
+    return or_(*conditions)
+
+
+def visible_announcements_query(db: Session, current_user: CurrentUser):
+    """`GET /announcements` must not return every announcement to every
+    authenticated user (a Teacher's section-scoped broadcast is not
+    meant for other sections' parents) — Admin/Principal
+    (`announcements:publish`) see everything, matching every other
+    unscoped-permission holder elsewhere in this codebase.
+    """
+
+    query = select(Announcement).where(Announcement.is_active.is_(True))
+    if current_user.has_permission("announcements:publish"):
+        return query
+    visible_section_ids = _visible_section_ids_for_user(db, current_user)
+    return query.where(_visible_audience_filter(Announcement, current_user, visible_section_ids))
+
+
+def visible_events_query(db: Session, current_user: CurrentUser):
+    """Same visibility filter as `visible_announcements_query`, for
+    events. `events:manage` holders (Admin/Principal/Teacher — doc 10 has
+    no scoped variant of this permission) see everything, consistent with
+    events having no write-side audience restriction either.
+    """
+
+    query = select(Event).where(Event.is_active.is_(True))
+    if current_user.has_permission("events:manage"):
+        return query
+    visible_section_ids = _visible_section_ids_for_user(db, current_user)
+    return query.where(_visible_audience_filter(Event, current_user, visible_section_ids))
+
+
 def assert_can_target_audience(
     db: Session,
     current_user: CurrentUser,
@@ -421,11 +508,22 @@ def update_announcement(
     announcement = db.get(Announcement, announcement_id)
     if announcement is None:
         raise AppError("NOT_FOUND", "Announcement not found.", 404)
-    if (
-        not current_user.has_permission("announcements:publish")
-        and announcement.created_by != current_user.id
-    ):
-        raise AppError("PERMISSION_DENIED", "You may only edit your own announcements.", 403)
+    if not current_user.has_permission("announcements:publish"):
+        if announcement.created_by != current_user.id:
+            raise AppError("PERMISSION_DENIED", "You may only edit your own announcements.", 403)
+        # Re-verify scope at edit time, not just at creation time — a
+        # Teacher who has since been reassigned off this section (or
+        # whose scoped permission was revoked) must not still be able to
+        # edit a section-targeted announcement they authored while they
+        # held it (router only requires holding *some* announcements
+        # permission, not still owning this specific audience).
+        assert_can_target_audience(
+            db,
+            current_user,
+            audience_type=announcement.audience_type,
+            audience_section_id=announcement.audience_section_id,
+            category=announcement.category,
+        )
 
     for field in ("title", "body", "expiry_date", "is_active"):
         if payload.get(field) is not None:

@@ -30,8 +30,10 @@ from app.schemas.common import Page, PageMeta
 from app.schemas.fee_financial import (
     ApplyCreditRequest,
     ApproveRejectRequest,
+    CashUpReportRow,
     DiscountCreate,
     DiscountRead,
+    DiscountUtilizationRow,
     FeeBalanceRead,
     FeeCategoryCreate,
     FeeCategoryRead,
@@ -668,3 +670,22 @@ def report_fee_credit_liability(
     _current_user: CurrentUser = Depends(require_permission("fees:report")),
 ) -> FeeCreditLiabilityReport:
     return service.fee_credit_liability_report(db)
+
+
+@router.get("/reports/discount-utilization", response_model=list[DiscountUtilizationRow])
+def report_discount_utilization(
+    from_date: date | None = None,
+    to_date: date | None = None,
+    db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(require_permission("fees:report")),
+) -> list[DiscountUtilizationRow]:
+    return service.discount_utilization_report(db, from_date=from_date, to_date=to_date)
+
+
+@router.get("/reports/cash-up-report", response_model=list[CashUpReportRow])
+def report_cash_up(
+    report_date: date,
+    db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(require_permission("fees:report")),
+) -> list[CashUpReportRow]:
+    return service.cash_up_report(db, report_date=report_date)

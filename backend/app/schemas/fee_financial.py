@@ -291,3 +291,18 @@ class OutstandingBalanceRow(BaseModel):
 class FeeCreditLiabilityReport(BaseModel):
     total_available_credit_cents: int
     credit_count: int
+
+
+class DiscountUtilizationRow(BaseModel):
+    discount_id: str
+    discount_name: str
+    discount_type: str
+    approved_count: int
+    total_discount_cents: int
+
+
+class CashUpReportRow(BaseModel):
+    report_date: date
+    method: str
+    payment_count: int
+    total_cents: int

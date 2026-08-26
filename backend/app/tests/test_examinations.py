@@ -252,3 +252,65 @@ def test_class_rank_respects_toggle_and_excludes_inactive_students(
     ranked_ids = {row["student_id"] for row in body["rows"]}
     assert withdrawn.id not in ranked_ids
     assert high_scorer.id in ranked_ids and low_scorer.id in ranked_ids
+
+
+def test_report_card_pdf_available_after_publish_denied_before(
+    client: TestClient, login_as: Callable[[str], dict], exam_setup: dict, seeded_db: Session
+) -> None:
+    admin = login_as("admin")
+    teacher = _teacher_for_section(
+        client, seeded_db, admin, exam_setup, exam_setup["section"], "exam-teacher-pdf@example.com"
+    )
+    student = _student_in(seeded_db, exam_setup["section"])
+    student_user = create_user_with_role(seeded_db, "student", "pdfstudent@example.com")
+    student.user_id = student_user.id
+    seeded_db.commit()
+    student_login = client.post(
+        "/api/v1/auth/login", json={"email": "pdfstudent@example.com", "password": "Password123!"}
+    )
+    student_headers = {"Authorization": f"Bearer {student_login.json()['access_token']}"}
+
+    exam = _create_exam(client, admin, exam_setup)
+    math_schedule = _create_schedule(client, admin, exam["id"], exam_setup, exam_setup["math"])
+    client.post(
+        f"/api/v1/exam-schedules/{math_schedule['id']}/results:bulk",
+        json={"results": [{"student_id": student.id, "score_obtained": 70}]},
+        headers=teacher,
+    )
+    english_schedule = _create_schedule(client, admin, exam["id"], exam_setup, exam_setup["english"])
+    client.post(
+        f"/api/v1/exam-schedules/{english_schedule['id']}/results:bulk",
+        json={"results": [{"student_id": student.id, "score_obtained": 65}]},
+        headers=teacher,
+    )
+
+    compiled = client.post(
+        "/api/v1/report-cards",
+        json={"student_id": student.id, "term_id": exam_setup["term"].id, "include_coursework": False},
+        headers=teacher,
+    )
+    assert compiled.status_code == 201, compiled.text
+    report_card_id = compiled.json()["id"]
+
+    # Before publish: staff who compiled it can still fetch the PDF-not-
+    # generated-yet 404 is expected too, but the interesting case is the
+    # student — must be denied entirely (same 404-not-403 pattern as the
+    # results/report-card visibility gate elsewhere in this module).
+    denied = client.get(f"/api/v1/report-cards/{report_card_id}.pdf", headers=student_headers)
+    assert denied.status_code == 404, denied.text
+
+    reviewed = client.patch(
+        f"/api/v1/report-cards/{report_card_id}", json={"status": "reviewed"}, headers=admin
+    )
+    assert reviewed.status_code == 200, reviewed.text
+
+    published = client.post(f"/api/v1/report-cards/{report_card_id}/publish", headers=admin)
+    assert published.status_code == 200, published.text
+
+    student_pdf = client.get(f"/api/v1/report-cards/{report_card_id}.pdf", headers=student_headers)
+    assert student_pdf.status_code == 200, student_pdf.text
+    assert student_pdf.headers["content-type"] == "application/pdf"
+    assert len(student_pdf.content) > 0
+
+    admin_pdf = client.get(f"/api/v1/report-cards/{report_card_id}.pdf", headers=admin)
+    assert admin_pdf.status_code == 200, admin_pdf.text

@@ -18,7 +18,7 @@ two distinct, non-confusing numbers.
 """
 
 import os
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -46,6 +46,8 @@ from app.models.fee_financial import (
 )
 from app.models.student_information import Guardian, Student, StudentGuardian
 from app.schemas.fee_financial import (
+    CashUpReportRow,
+    DiscountUtilizationRow,
     FeeCollectionReportRow,
     FeeCreditLiabilityReport,
     OutstandingBalanceRow,
@@ -206,6 +208,21 @@ def invoice_outstanding_cents(invoice: FeeInvoice) -> int:
 
 
 # ---------------------------------------------------------------- discounts --
+
+
+def _resolve_staff_id(db: Session, user_id: str | None) -> str | None:
+    """`applied_by_staff_id` (and similar "which staff member did this"
+    columns) are FKs to `staff.id`, not `users.id` — resolve one from the
+    other rather than writing the raw user id into a staff FK. Same
+    pattern as `examinations.py`'s `_resolve_staff_id`.
+    """
+
+    if user_id is None:
+        return None
+    from app.models.staff_management import Staff
+
+    staff = db.scalar(select(Staff.id).where(Staff.user_id == user_id))
+    return staff
 
 
 def _resolve_discount_base_amount(db: Session, discount: Discount) -> int:
@@ -440,7 +457,7 @@ def apply_credit(
         fee_invoice_id=invoice.id,
         amount_cents=amount_cents,
         applied_at=utcnow(),
-        applied_by_staff_id=actor_user_id,
+        applied_by_staff_id=_resolve_staff_id(db, actor_user_id),
         created_by=actor_user_id,
     )
     db.add(application)
@@ -1116,3 +1133,81 @@ def fee_credit_liability_report(db: Session) -> FeeCreditLiabilityReport:
     ).all()
     total = sum(c.amount_remaining_cents for c in credits)
     return FeeCreditLiabilityReport(total_available_credit_cents=total, credit_count=len(credits))
+
+
+def discount_utilization_report(
+    db: Session, *, from_date: date | None = None, to_date: date | None = None
+) -> list[DiscountUtilizationRow]:
+    """doc 08 "Reports" — how much discount value has actually been
+    granted, by discount type, and to how many students. `StudentDiscount`
+    has no term/date dimension of its own (a discount is a standing grant
+    on a student, not per-invoice), so `from_date`/`to_date` filter on
+    `created_at` — "discounts approved in this window" — rather than on
+    any billing period.
+    """
+
+    query = (
+        select(StudentDiscount, Discount)
+        .join(Discount, StudentDiscount.discount_id == Discount.id)
+        .where(StudentDiscount.status == "approved")
+    )
+    if from_date:
+        query = query.where(StudentDiscount.created_at >= from_date)
+    if to_date:
+        query = query.where(StudentDiscount.created_at <= to_date)
+
+    grouped: dict[str, dict] = {}
+    for _student_discount, discount in db.execute(query).all():
+        base_amount = (
+            int(discount.value) if discount.type == "fixed" else _resolve_discount_base_amount(db, discount)
+        )
+        effective_cents = _discount_effective_cents(db, discount, base_amount)
+        bucket = grouped.setdefault(
+            discount.id,
+            {"name": discount.name, "type": discount.type, "count": 0, "total_cents": 0},
+        )
+        bucket["count"] += 1
+        bucket["total_cents"] += effective_cents
+
+    return [
+        DiscountUtilizationRow(
+            discount_id=discount_id,
+            discount_name=vals["name"],
+            discount_type=vals["type"],
+            approved_count=vals["count"],
+            total_discount_cents=vals["total_cents"],
+        )
+        for discount_id, vals in grouped.items()
+    ]
+
+
+def cash_up_report(db: Session, *, report_date: date) -> list[CashUpReportRow]:
+    """doc 08 "Reports" — a bookkeeper's end-of-day cash-up: payments
+    actually received on `report_date`, broken down by method. Voided
+    payments are excluded (never counted as "received"); `paid_at` (not
+    `created_at`) is the date a payment is attributed to, since a payment
+    can in principle be entered after the fact.
+    """
+
+    day_start = datetime.combine(report_date, datetime.min.time())
+    day_end = datetime.combine(report_date, datetime.max.time())
+    payments = db.scalars(
+        select(FeePayment).where(
+            FeePayment.status == "active",
+            FeePayment.paid_at >= day_start,
+            FeePayment.paid_at <= day_end,
+        )
+    ).all()
+
+    grouped: dict[str, dict[str, int]] = {}
+    for payment in payments:
+        bucket = grouped.setdefault(payment.method, {"count": 0, "total": 0})
+        bucket["count"] += 1
+        bucket["total"] += payment.amount_cents
+
+    return [
+        CashUpReportRow(
+            report_date=report_date, method=method, payment_count=vals["count"], total_cents=vals["total"]
+        )
+        for method, vals in grouped.items()
+    ]

@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -261,6 +262,35 @@ def exam_schedule_class_rank(
 
 
 # --------------------------------------------------------------- report cards --
+
+
+@router.get("/report-cards/{report_card_id}.pdf")
+def download_report_card_pdf(
+    report_card_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(
+        require_any_permission("report_cards:compile", "report_cards:publish", "exam_results:view_own")
+    ),
+) -> FileResponse:
+    # Registered before `GET /report-cards/{report_card_id}` (below) —
+    # Starlette matches routes in registration order, and a bare
+    # `{report_card_id}` path param happily matches a literal ".pdf"
+    # suffix too, so the generic GET would otherwise intercept every
+    # `.pdf` request first and 404 on the mangled id before this handler
+    # ever ran. Caught by my own test, not by review.
+    report_card = db.get(ReportCard, report_card_id)
+    if report_card is None:
+        raise AppError("NOT_FOUND", "Report card not found.", status_code=404)
+    # Same publish-gate visibility rule as `GET /report-cards/{id}` — a
+    # student/parent can only ever reach a *published* report card here;
+    # `get_visible_report_card` 404s otherwise rather than 403ing, so an
+    # unpublished report card's existence isn't leaked either.
+    visible = service.get_visible_report_card(db, current_user, report_card)
+    if visible.pdf_url is None:
+        raise AppError(
+            "REPORT_CARD_PDF_NOT_GENERATED", "This report card's PDF has not been generated yet.", 404
+        )
+    return FileResponse(visible.pdf_url, media_type="application/pdf", filename=f"{visible.id}.pdf")
 
 
 @router.get("/report-cards", response_model=Page[ReportCardRead])

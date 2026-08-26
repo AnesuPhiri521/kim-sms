@@ -9,8 +9,10 @@ either — see that module's docstrings for why the two modules share
 this logic (docs 11/12 intros).
 """
 
+import os
 from datetime import date as date_type
 from datetime import time as time_type
+from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -740,6 +742,10 @@ def publish_report_cards_for_section(
         published_ids.append(rc.id)
     db.flush()
 
+    for rc in cohort_report_cards:
+        rc.pdf_url = generate_report_card_pdf(db, rc)
+    db.flush()
+
     AuditService(db).record(
         actor_user_id=current_user.id,
         action="publish",
@@ -798,3 +804,94 @@ def get_visible_report_card(db: Session, current_user: CurrentUser, report_card:
         if is_own_child is not None:
             return report_card
     raise AppError("NOT_FOUND", "Report card not found.", status_code=404)
+
+
+# ---------------------------------------------------------- report card pdf --
+
+
+def _report_card_storage_root() -> Path:
+    override = os.environ.get("REPORT_CARD_STORAGE_ROOT")
+    if override:
+        return Path(override)
+    # backend/app/services/examinations.py -> backend/storage/report_cards
+    return Path(__file__).resolve().parent.parent.parent / "storage" / "report_cards"
+
+
+def generate_report_card_pdf(db: Session, report_card: ReportCard) -> str:
+    """Same `fpdf2` approach as `fee_financial._generate_receipt_pdf` —
+    one simple PDF per published report card, generated as part of
+    publishing (not lazily on first download) so `pdf_url` reflects the
+    exact content that was actually signed off, not whatever the record
+    happens to look like whenever someone first asks for it.
+    """
+
+    from fpdf import FPDF  # local import: keeps the dependency confined to this one code path
+
+    student = db.get(Student, report_card.student_id)
+    term = db.get(Term, report_card.term_id)
+    section_name = None
+    if student is not None and student.current_section_id is not None:
+        from app.models.academics_core import Section
+
+        section = db.get(Section, student.current_section_id)
+        section_name = section.name if section is not None else None
+
+    subject_rows = db.execute(
+        select(ExamResult, ExamSchedule, Subject)
+        .join(ExamSchedule, ExamResult.exam_schedule_id == ExamSchedule.id)
+        .join(Exam, ExamSchedule.exam_id == Exam.id)
+        .join(Subject, ExamSchedule.subject_id == Subject.id)
+        .where(ExamResult.student_id == report_card.student_id, Exam.term_id == report_card.term_id)
+    ).all()
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "EduManage - Report Card", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 12)
+    student_name = f"{student.first_name} {student.last_name}" if student is not None else "Unknown student"
+    pdf.cell(0, 8, f"Student: {student_name}", new_x="LMARGIN", new_y="NEXT")
+    if section_name:
+        pdf.cell(0, 8, f"Class: {section_name}", new_x="LMARGIN", new_y="NEXT")
+    term_name = term.name if term is not None else report_card.term_id
+    pdf.cell(0, 8, f"Term: {term_name}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Subject Results", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 11)
+    for result, schedule, subject in subject_rows:
+        if result.is_absent and result.score_obtained is None:
+            pdf.cell(0, 7, f"{subject.name}: Absent", new_x="LMARGIN", new_y="NEXT")
+        else:
+            pdf.cell(
+                0,
+                7,
+                f"{subject.name}: {result.score_obtained}/{schedule.max_score} "
+                f"({result.grade or 'ungraded'})",
+                new_x="LMARGIN",
+                new_y="NEXT",
+            )
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, f"Overall Grade: {report_card.overall_grade or 'N/A'}", new_x="LMARGIN", new_y="NEXT")
+    if report_card.class_rank is not None:
+        pdf.cell(0, 8, f"Class Rank: {report_card.class_rank}", new_x="LMARGIN", new_y="NEXT")
+
+    comments = list(
+        db.scalars(select(ReportCardComment).where(ReportCardComment.report_card_id == report_card.id)).all()
+    )
+    if comments:
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, "Comments", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 11)
+        for comment in comments:
+            pdf.multi_cell(0, 7, comment.comment)
+
+    directory = _report_card_storage_root()
+    directory.mkdir(parents=True, exist_ok=True)
+    destination = directory / f"{report_card.id}.pdf"
+    pdf.output(str(destination))
+    return str(destination)

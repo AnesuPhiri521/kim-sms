@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.academics_core import AcademicYear, SchoolClass, Section, Term
+from app.models.fee_financial import Receipt
 from app.models.student_information import Guardian, Student, StudentGuardian
 from app.tests.conftest import create_user_with_role
 
@@ -417,3 +418,184 @@ def test_terms_summary_shows_partial_term_independent_of_later_terms(
     assert term1_row["balance_cents"] == 2000
     assert term2_row["status"] == "unpaid"
     assert term2_row["balance_cents"] == 5000
+
+
+# ------------------------------------------------------------------ reports --
+
+
+def test_discount_utilization_report_reflects_approved_discounts(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    admin = login_as("admin")
+    accountant = login_as("accountant")
+    student_id = fee_setup["student"].id
+
+    threshold_set = client.patch(
+        "/api/v1/system-settings/fee_discount_approval_threshold_cents", json={"value": "1000"}, headers=admin
+    )
+    assert threshold_set.status_code == 200, threshold_set.text
+
+    discount = client.post(
+        "/api/v1/discounts",
+        json={"name": "Sibling Discount", "type": "fixed", "value": 750, "applies_to": "student"},
+        headers=accountant,
+    )
+    assert discount.status_code == 201, discount.text
+    applied = client.post(f"/api/v1/discounts/{discount.json()['id']}/apply/{student_id}", headers=accountant)
+    assert applied.status_code == 201, applied.text
+    assert applied.json()["status"] == "approved"  # 750 < the 1000-cent threshold just set
+
+    report = client.get("/api/v1/reports/discount-utilization", headers=admin)
+    assert report.status_code == 200, report.text
+    rows = {row["discount_id"]: row for row in report.json()}
+    row = rows[discount.json()["id"]]
+    assert row["approved_count"] == 1
+    assert row["total_discount_cents"] == 750
+
+
+def test_cash_up_report_breaks_down_by_method_and_excludes_voided(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    admin = login_as("admin")
+    structure = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=10000)
+    _generate_invoices(client, admin, structure["id"])
+    student_id = fee_setup["student"].id
+
+    cash_payment = client.post(
+        f"/api/v1/students/{student_id}/fee-payments",
+        json={"amount_cents": 3000, "method": "cash"},
+        headers={**admin, "Idempotency-Key": "cashup-cash"},
+    )
+    assert cash_payment.status_code == 201, cash_payment.text
+    transfer_payment = client.post(
+        f"/api/v1/students/{student_id}/fee-payments",
+        json={"amount_cents": 2000, "method": "bank_transfer"},
+        headers={**admin, "Idempotency-Key": "cashup-transfer"},
+    )
+    assert transfer_payment.status_code == 201, transfer_payment.text
+    voided_payment = client.post(
+        f"/api/v1/students/{student_id}/fee-payments",
+        json={"amount_cents": 1000, "method": "cash"},
+        headers={**admin, "Idempotency-Key": "cashup-voided"},
+    )
+    assert voided_payment.status_code == 201, voided_payment.text
+    void = client.post(
+        f"/api/v1/fee-payments/{voided_payment.json()['id']}/void",
+        json={"reason": "duplicate entry"},
+        headers=admin,
+    )
+    assert void.status_code == 200, void.text
+
+    report_date = cash_payment.json()["paid_at"][:10]
+    report = client.get(f"/api/v1/reports/cash-up-report?report_date={report_date}", headers=admin)
+    assert report.status_code == 200, report.text
+    rows = {row["method"]: row for row in report.json()}
+    assert rows["cash"]["payment_count"] == 1  # the voided cash payment must not count
+    assert rows["cash"]["total_cents"] == 3000
+    assert rows["bank_transfer"]["total_cents"] == 2000
+
+
+# --------------------------------------------------------- manual overrides --
+
+
+def test_manual_allocation_override_honored_instead_of_oldest_first(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    admin = login_as("admin")
+    structure1 = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _generate_invoices(client, admin, structure1["id"])
+    structure2 = _create_structure(client, admin, fee_setup, fee_setup["term2"], amount_cents=5000)
+    _generate_invoices(client, admin, structure2["id"])
+    student_id = fee_setup["student"].id
+
+    invoice1 = _get_invoice_for_term(client, admin, student_id, fee_setup["term1"].id)
+    invoice2 = _get_invoice_for_term(client, admin, student_id, fee_setup["term2"].id)
+
+    # Default behavior would settle term1 (oldest) first; explicitly
+    # allocate the whole payment to term2 instead and confirm the override
+    # is honored rather than the oldest-first default.
+    payment = client.post(
+        f"/api/v1/students/{student_id}/fee-payments",
+        json={
+            "amount_cents": 5000,
+            "method": "cash",
+            "allocations": [{"fee_invoice_id": invoice2["id"], "amount_cents": 5000}],
+        },
+        headers={**admin, "Idempotency-Key": "manual-alloc"},
+    )
+    assert payment.status_code == 201, payment.text
+
+    invoice1_after = client.get(f"/api/v1/fee-invoices/{invoice1['id']}", headers=admin).json()
+    invoice2_after = client.get(f"/api/v1/fee-invoices/{invoice2['id']}", headers=admin).json()
+    assert invoice1_after["status"] == "unpaid"
+    assert invoice1_after["amount_paid_cents"] == 0
+    assert invoice2_after["status"] == "paid"
+    assert invoice2_after["amount_paid_cents"] == 5000
+
+
+def test_manual_credit_apply_and_refund(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    admin = login_as("admin")
+    structure1 = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _generate_invoices(client, admin, structure1["id"])
+    structure2 = _create_structure(client, admin, fee_setup, fee_setup["term2"], amount_cents=5000)
+    _generate_invoices(client, admin, structure2["id"])
+    student_id = fee_setup["student"].id
+    invoice1 = _get_invoice_for_term(client, admin, student_id, fee_setup["term1"].id)
+    invoice2 = _get_invoice_for_term(client, admin, student_id, fee_setup["term2"].id)
+
+    # Explicit allocation (only invoice1) bypasses the default oldest-first
+    # walk, so the 3000 remainder becomes a credit even though invoice2 is
+    # still outstanding — this is what leaves a credit genuinely available
+    # for *manual* application rather than being auto-consumed immediately.
+    overpay = client.post(
+        f"/api/v1/students/{student_id}/fee-payments",
+        json={
+            "amount_cents": 8000,
+            "method": "cash",
+            "allocations": [{"fee_invoice_id": invoice1["id"], "amount_cents": 5000}],
+        },
+        headers={**admin, "Idempotency-Key": "manual-credit-overpay"},
+    )
+    assert overpay.status_code == 201, overpay.text
+
+    credits = client.get(f"/api/v1/students/{student_id}/fee-credits", headers=admin)
+    assert credits.status_code == 200, credits.text
+    credit = credits.json()["data"][0]
+    assert credit["amount_remaining_cents"] == 3000
+
+    applied = client.post(
+        f"/api/v1/fee-credits/{credit['id']}/apply",
+        json={"fee_invoice_id": invoice2["id"], "amount_cents": 3000},
+        headers=admin,
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["amount_remaining_cents"] == 0
+    assert applied.json()["status"] == "fully_applied"
+
+    invoice2_after = client.get(f"/api/v1/fee-invoices/{invoice2['id']}", headers=admin).json()
+    assert invoice2_after["credit_applied_cents"] == 3000
+
+    refund_denied = client.post(
+        f"/api/v1/fee-credits/{credit['id']}/refund", json={"reason": "test refund"}, headers=admin
+    )
+    assert refund_denied.status_code in (400, 409), refund_denied.text
+
+
+def test_receipt_pdf_downloads_after_payment(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict, seeded_db: Session
+) -> None:
+    admin = login_as("admin")
+    structure = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _generate_invoices(client, admin, structure["id"])
+    student_id = fee_setup["student"].id
+
+    payment = _pay(client, admin, student_id, 5000, idem="receipt-pdf")
+    assert payment.status_code == 201, payment.text
+    receipt = seeded_db.query(Receipt).filter(Receipt.payment_id == payment.json()["id"]).one()
+
+    pdf = client.get(f"/api/v1/receipts/{receipt.id}.pdf", headers=admin)
+    assert pdf.status_code == 200, pdf.text
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert len(pdf.content) > 0

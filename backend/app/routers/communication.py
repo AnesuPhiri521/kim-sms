@@ -125,10 +125,11 @@ def mark_all_notifications_read(
 def list_announcements(
     params: CommonListParams = Depends(common_list_params),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[AnnouncementRead]:
     repo = service.AnnouncementRepository(db)
-    rows, total = repo.list(params)
+    query = service.visible_announcements_query(db, current_user)
+    rows, total = repo.list(params, query=query)
     return _page(rows, params, total, AnnouncementRead)
 
 
@@ -148,7 +149,9 @@ def update_announcement(
     announcement_id: str,
     payload: AnnouncementUpdate,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(
+        require_any_permission("announcements:publish", "announcements:publish_scoped")
+    ),
 ) -> Announcement:
     return service.update_announcement(db, current_user, announcement_id, payload.model_dump())
 
@@ -160,10 +163,11 @@ def update_announcement(
 def list_events(
     params: CommonListParams = Depends(common_list_params),
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[EventRead]:
     repo = service.EventRepository(db)
-    rows, total = repo.list(params)
+    query = service.visible_events_query(db, current_user)
+    rows, total = repo.list(params, query=query)
     return _page(rows, params, total, EventRead)
 
 

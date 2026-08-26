@@ -323,3 +323,86 @@ def test_event_manage_permission_required(
         headers=parent_headers,
     )
     assert denied.status_code == 403, denied.text
+
+
+# --------------------------------------------------- read-side visibility --
+
+
+def test_section_announcement_not_visible_to_unrelated_parent(
+    client: TestClient, login_as: Callable[..., dict[str, str]], seeded_db: Session
+) -> None:
+    admin_headers = login_as("admin")
+    setup = _seed_setup(seeded_db)
+    _student_with_guardian(seeded_db, setup["section_a"].id, guardian_email="in-section@example.com")
+    _student_with_guardian(seeded_db, setup["section_b"].id, guardian_email="other-section@example.com")
+
+    response = client.post(
+        "/api/v1/announcements",
+        json={
+            "title": "Section A only",
+            "body": "...",
+            "audience_type": "section",
+            "audience_section_id": setup["section_a"].id,
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 201, response.text
+
+    in_section_login = client.post(
+        "/api/v1/auth/login", json={"email": "in-section@example.com", "password": "Password123!"}
+    )
+    in_section_headers = {"Authorization": f"Bearer {in_section_login.json()['access_token']}"}
+    visible = client.get("/api/v1/announcements", headers=in_section_headers)
+    assert visible.json()["meta"]["total"] == 1
+
+    other_section_login = client.post(
+        "/api/v1/auth/login", json={"email": "other-section@example.com", "password": "Password123!"}
+    )
+    other_section_headers = {"Authorization": f"Bearer {other_section_login.json()['access_token']}"}
+    hidden = client.get("/api/v1/announcements", headers=other_section_headers)
+    assert hidden.json()["meta"]["total"] == 0
+
+
+def test_editing_section_announcement_after_reassignment_is_denied(
+    client: TestClient, login_as: Callable[..., dict[str, str]], seeded_db: Session
+) -> None:
+    login_as("admin")
+    setup = _seed_setup(seeded_db)
+    teacher_user = _teacher_for_section(
+        seeded_db, setup["section_a"].id, setup["term"].id, email="reassigned-teacher@example.com"
+    )
+    login = client.post(
+        "/api/v1/auth/login", json={"email": "reassigned-teacher@example.com", "password": "Password123!"}
+    )
+    teacher_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    created = client.post(
+        "/api/v1/announcements",
+        json={
+            "title": "My class update",
+            "body": "...",
+            "audience_type": "section",
+            "audience_section_id": setup["section_a"].id,
+        },
+        headers=teacher_headers,
+    )
+    assert created.status_code == 201, created.text
+    announcement_id = created.json()["id"]
+
+    # Simulate the teacher being reassigned off section_a (their active
+    # StaffAssignment for it is soft-deleted, same as a real reassignment).
+    assignment = (
+        seeded_db.query(StaffAssignment)
+        .join(Staff, StaffAssignment.staff_id == Staff.id)
+        .filter(Staff.user_id == teacher_user.id)
+        .one()
+    )
+    assignment.is_active = False
+    seeded_db.commit()
+
+    denied = client.patch(
+        f"/api/v1/announcements/{announcement_id}",
+        json={"title": "Trying to edit after reassignment"},
+        headers=teacher_headers,
+    )
+    assert denied.status_code == 403, denied.text
