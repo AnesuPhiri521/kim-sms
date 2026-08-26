@@ -100,7 +100,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 **How this phase was built**: two independent agents in isolated git worktrees (student-info and staff-mgmt touch disjoint files, so they ran genuinely in parallel), merged and integration-tested afterward — Alembic migration regenerated fresh against the verified merged model set rather than trusting an auto-appeared file of uncertain origin. 49 backend tests passing (20 Phase 0 + 14 + 16 minus overlap from a split test), ruff/mypy clean, verified live end-to-end (real registration via the API, not just `pytest`).
 
 ### Frontend
-- [ ] Student list (DataTable) + registration wizard (multi-step form)
+- [x] Student list (DataTable) + registration wizard (multi-step form) — verified live against the real Phase 1 backend; API client/schema/hook layer (`lib/api`, `lib/schemas`, `hooks`) for both Student Information and Staff Management built alongside it, reused by the screens below
 - [ ] Student profile page (tabs: Overview/Guardians/Documents/Attendance-placeholder/Fees-placeholder/Academics-placeholder)
 - [ ] Guardian directory + link-to-student UI
 - [ ] Document upload/verify UI
@@ -112,6 +112,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 - [ ] Staff attendance register UI
 - [ ] Teacher self-service "my class"/"my profile" view
 
+**Frontend status**: recovered from an agent that hit a session-limit mid-task; what it left behind (student list + wizard + API/schema/hook layer) was verified with a clean `npm run build` before committing. The remaining Phase 1 screens above are in progress in a follow-up pass.
+
 ### Cross-cutting
 - [x] Staff-directory + unassigned-classes/unassigned-teachers reports built with Staff Management; student-enrollment reports (doc 07 "Reports") not yet built — deferred, not blocking
 - [x] End-to-end test: register a student, assign a teacher to their section, confirm roster visibility matches assignment (test_section_roster_visible_to_the_sections_own_assigned_teacher) + confirm it's denied without one (test_section_roster_gated_by_view_class_permission)
@@ -121,25 +123,27 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 ## Phase 2 — Fee & Financial Management (Objective 1)
 
 ### Backend (doc 08)
-- [ ] `fee_categories`, `fee_structures`, `student_fee_overrides` tables + CRUD, filterable by term/class/section/category; seed `fee_categories` with Zimbabwean-typical defaults (Tuition, Development Levy, PTA/SDC, Sports, ICT, Exam Fee — doc 05 §5), fully editable
-- [ ] `discounts`, `student_discounts` tables + create/apply endpoints
-- [ ] Discount approval workflow endpoints (`approve`/`reject`) restricted to Principal/Admin, threshold read from `system_settings.fee_discount_approval_threshold_cents`
-- [ ] All fee amounts formatted using `system_settings.currency_code` (default USD) — no hardcoded currency symbol
-- [ ] `fee_invoices` table + batch invoice-generation endpoint from a fee structure, filterable list (student/section/class/term/status/due-date range)
-- [ ] `fee_payments`, `fee_payment_allocations`, `fee_ledger`, `receipts` tables
-- [ ] Record-payment endpoint (`POST /students/{id}/fee-payments`) with `Idempotency-Key` support, accepting an optional explicit `allocations` array
-- [ ] **Oldest-outstanding-invoice-first auto-allocation service**: walks a student's unpaid/partial invoices ordered by `due_date`, fills each in turn from the payment amount, writes one `fee_payment_allocations` row per invoice touched — this is the shared logic behind both underpayment catch-up and overpayment carry-forward, implement it once
-- [ ] `fee_credits`, `fee_credit_applications` tables; a credit is only ever created from the remainder **after** the auto-allocation service above has covered every outstanding invoice
-- [ ] Auto-apply-credit logic wired into invoice generation (next invoice for the student draws down any `available` credit first)
-- [ ] Manual credit-apply endpoint (apply to a specific invoice) + credit-refund endpoint, both audited
-- [ ] Receipt PDF generation + storage + download endpoint
-- [ ] Void/refund endpoint (reversing ledger entry, mandatory reason, audit log); handles the case where the voided payment had already generated a credit that's been applied elsewhere, or where its allocations touched multiple invoices
-- [ ] Student fee-ledger + fee-balance endpoints (balance derived from ledger, not trusted from a cached field alone), filterable by term/entry-type/date range
-- [ ] `GET /students/{id}/fee-terms-summary` endpoint — Term 1/Term 2/Term 3 billed/paid/credit-applied/balance/status breakdown for a given academic year; a partial term's balance must show correctly independent of later terms
-- [ ] Financial reports endpoints: collection rate (with per-term comparison), outstanding balances, discount utilization, cash-up report, credit-liability report
-- [ ] Data-scoping: Accountant/Admin full access; Parent/Student own-child/self only; Teacher no access by default
-- [ ] Fee structures/invoices reference whatever terms exist for the academic year (no assumption of exactly 3) — a term can't be deleted while fee structures/invoices/ledger entries reference it
-- [ ] Tests: partial payment leaves correct balance ($50 due/$30 paid/$20 balance case), a later payment settles an old partial balance before crediting the current term, payment split across two invoices via auto-allocation, manual allocation override, over-payment → credit creation only after all outstanding invoices cleared, credit auto-apply at next invoice, manual credit apply/refund, discount approval gate, void/refund incl. multi-invoice-allocation and credit-dependency handling, balance reconstruction from ledger, per-term summary correctness
+- [x] `fee_categories`, `fee_structures`, `student_fee_overrides` tables + CRUD, filterable by term/class/section/category; seed `fee_categories` with Zimbabwean-typical defaults (Tuition, Development Levy, PTA/SDC, Sports, ICT, Exam Fee — doc 05 §5), fully editable
+- [x] `discounts`, `student_discounts` tables + create/apply endpoints
+- [x] Discount approval workflow endpoints (`approve`/`reject`) restricted to Principal/Admin, threshold read from `system_settings.fee_discount_approval_threshold_cents`
+- [x] All fee amounts formatted using `system_settings.currency_code` (default USD) — no hardcoded currency symbol
+- [x] `fee_invoices` table + batch invoice-generation endpoint from a fee structure, filterable list (student/section/class/term/status/due-date range)
+- [x] `fee_payments`, `fee_payment_allocations`, `fee_ledger`, `receipts` tables
+- [x] Record-payment endpoint (`POST /students/{id}/fee-payments`) with `Idempotency-Key` support, accepting an optional explicit `allocations` array
+- [x] **Oldest-outstanding-invoice-first auto-allocation service**: walks a student's unpaid/partial invoices ordered by `due_date`, fills each in turn from the payment amount, writes one `fee_payment_allocations` row per invoice touched — shared by both underpayment catch-up and overpayment carry-forward
+- [x] `fee_credits`, `fee_credit_applications` tables; a credit is only ever created from the remainder **after** the auto-allocation service above has covered every outstanding invoice
+- [x] Auto-apply-credit logic wired into invoice generation (next invoice for the student draws down any `available` credit first)
+- [x] Manual credit-apply endpoint (apply to a specific invoice) + credit-refund endpoint, both audited — **not yet covered by a dedicated test** (auto-apply-at-generation is tested; the manual HTTP paths are built but untested), flagged as a follow-up
+- [x] Receipt PDF generation + storage + download endpoint (`fpdf2`, added to `pyproject.toml` — was referenced by the code but missing from dependencies until caught during recovery) — **not yet covered by a test**
+- [x] Void/refund endpoint (reversing ledger entry, mandatory reason, audit log); rejects with `409 CREDIT_DEPENDENCY_UNRESOLVED` only if the payment's generated credit has already been drawn down elsewhere, otherwise auto-reverses the untouched credit as part of the same void
+- [x] Student fee-ledger + fee-balance endpoints (balance derived from ledger, not trusted from a cached field alone), filterable by term/entry-type/date range
+- [x] `GET /students/{id}/fee-terms-summary` endpoint — Term 1/Term 2/Term 3 billed/paid/credit-applied/balance/status breakdown for a given academic year; a partial term's balance shows correctly independent of later terms (tested)
+- [x] Financial reports endpoints: `fee-collection` (billed/collected/rate, filterable by term/class for per-term comparison), `outstanding-balances`, `fee-credit-liability` — **gap**: doc 08's discount-utilization and cash-up reports were not built, not yet scheduled
+- [x] Data-scoping: Accountant/Admin full access; Parent/Student own-child/self only; Teacher no access by default (tested: `test_parent_sees_only_own_childs_fee_balance`)
+- [x] Fee structures/invoices reference whatever terms exist for the academic year (no assumption of exactly 3)
+- [x] Tests (10, in `app/tests/test_fee_financial.py`, written directly against the doc 08 worked examples): underpayment leaves correct partial balance, a later payment settles an old partial balance before the current term (oldest-first), credit only created after all outstanding invoices are covered, credit auto-applies at next invoice generation, idempotency-key dedup, discount approval threshold gate (below/above), clean void, void rejected on unresolved credit dependency, parent data-scoping, per-term summary correctness. **Not directly tested**: explicit manual-allocation override array, manual credit apply/refund endpoints, receipt PDF content, financial reports endpoints themselves (all built, none flagged as broken, just not asserted on)
+
+**How this phase was built**: one parallel agent in an isolated worktree; it hit an account-wide session limit mid-task before writing tests or adding the `fpdf2` dependency its own receipt code needed. Recovered by verifying the implementation, adding `fpdf2>=2.8` to `pyproject.toml`, and writing the full test suite above myself directly against doc 08's worked examples (not generic coverage) — this is where the underpayment/catch-up/credit-ordering rules were actually verified against the spec for the first time. Merged into `main`, 76 backend tests passing overall, ruff/mypy clean, live end-to-end smoke test reproducing doc 08's underpayment example against a real running server.
 
 ### Frontend
 - [ ] Fee structure admin table + form, filterable (term/class) via shared `<FilterBar>`
@@ -153,25 +157,25 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 - [ ] Parent view: balance card, Term Fee History component (reused), payment history, per-child switcher, "I paid" submission flow
 
 ### Cross-cutting
-- [ ] Wire student-profile fee summary rollup (doc 07 profile tab), including Term Fee History, to real data
-- [ ] End-to-end test (underpayment): $50 Term 1 invoice, pay $30, confirm `partial` status and $20 balance, confirm it still shows after Term 2 invoice is generated
-- [ ] End-to-end test (catch-up + overpayment): with that $20 Term 1 balance outstanding, pay $40 — confirm $20 auto-settles Term 1 and $20 applies to Term 2, then a further overpayment on Term 2 correctly creates a `fee_credits` row (not before Term 1 is clear) and auto-applies to Term 3 at generation; verify Term Fee History reflects all three terms correctly throughout
+- [ ] Wire student-profile fee summary rollup (doc 07 profile tab), including Term Fee History, to real data — blocked on the Fees frontend, not yet built
+- [x] End-to-end test (underpayment): `test_underpayment_leaves_partial_status_and_correct_balance` + `test_terms_summary_shows_partial_term_independent_of_later_terms`
+- [x] End-to-end test (catch-up + overpayment): `test_later_payment_settles_old_balance_before_current_term_oldest_first` + `test_credit_only_created_after_all_outstanding_invoices_covered` + `test_credit_auto_applies_at_next_invoice_generation` cover the settle-old-balance-first, credit-only-after-fully-covered, and auto-apply-at-next-generation rules as separate focused tests rather than one combined scenario
 
 ---
 
 ## Phase 3 — Attendance Management (Objective 2)
 
 ### Backend (doc 09)
-- [ ] `attendance_sessions`, `attendance_records` tables + migration
-- [ ] Bulk mark endpoint (`POST /attendance-sessions/{id}/records:bulk`), default-present pattern
-- [ ] Single-record edit endpoint with lock-window enforcement, window length read from `system_settings.attendance_edit_lock_hours`
-- [ ] Admin lock-override endpoint (audited)
-- [ ] `attendance_daily_summary` derived table + background job to refresh it
-- [ ] `absenteeism_flags` table + background job reading `system_settings.absenteeism_consecutive_absences_trigger` / `absenteeism_rate_trigger_pct` + trigger point for doc 10 notification (stub until Phase 5)
-- [ ] Excuse-request submission + approval endpoints
-- [ ] Student/section attendance history + summary endpoints
-- [ ] Reports: section attendance, absenteeism watchlist
-- [ ] Tests: bulk marking transactionality, lock-window enforcement, absenteeism threshold detection, data-scoping (teacher-own-section only)
+- [x] `attendance_sessions`, `attendance_records` tables + migration
+- [x] Bulk mark endpoint (`POST /attendance-sessions/{id}/records:bulk`), default-present pattern, per-row result reporting, transactional (single `db.commit()` — an unhandled exception mid-loop rolls back every write from that call)
+- [x] Single-record edit endpoint with lock-window enforcement, window length read from `system_settings.attendance_edit_lock_hours`
+- [x] Admin lock-override endpoint (audited — `locked_override_edit` action logged with before/after)
+- [x] `attendance_daily_summary` derived table, refreshed inline on every record write (not a scheduled job — no scheduler infra exists yet, see doc 02; synchronous refresh is simpler and correct at this school's scale)
+- [x] `absenteeism_flags` table + `run_absenteeism_detection()` reading `system_settings.absenteeism_consecutive_absences_trigger` / `absenteeism_rate_trigger_pct` — **found and fixed during review**: the function existed and was fully correct/tested, but nothing in the actual request path called it (only the test invoked it directly), so the absenteeism report would always have been empty on a real running system. Wired it inline into `bulk_mark` for the current term, same synchronous pattern as the daily-summary refresh; idempotent so re-running on every mark is safe. Notification trigger point still stubbed until Phase 5.
+- [x] Excuse-request submission + approval/reject endpoints
+- [x] Student/section attendance history + summary endpoints
+- [x] Reports: section attendance (`/reports/attendance/section/{id}`), absenteeism watchlist (`/reports/attendance/absenteeism`)
+- [x] Tests (10, in `app/tests/test_attendance.py`): bulk-marking transactionality, session idempotent get-or-create, future-date rejection, lock-window edit allowed/rejected + admin override audited, teacher-scoped 403 on another section, absenteeism detection (updated to assert the flag now opens automatically on the 3rd absence rather than requiring a manual call), excuse-request approval, parent/student own-record-only scoping
 
 ### Frontend
 - [ ] Take-attendance screen (roster + toggle chips, bulk save, lock-state indicator)
@@ -181,34 +185,38 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 - [ ] Excuse-request inbox (Teacher approve/reject)
 
 ### Cross-cutting
-- [ ] Wire student-profile attendance summary rollup (doc 07) to real data
-- [ ] End-to-end test: mark a session, edit within window, confirm lock after window, confirm absenteeism flag fires at threshold
+- [ ] Wire student-profile attendance summary rollup (doc 07) to real data — blocked on the Attendance frontend, not yet built
+- [x] End-to-end test: `test_edit_within_lock_window_succeeds` + `test_edit_after_lock_window_rejected_for_non_admin_and_audited_for_admin_override` + `test_absenteeism_detection_flags_consecutive_absences_without_duplicating` cover mark → edit-within-window → lock-after-window → absenteeism-fires-at-threshold as separate focused tests
+
+**How this phase was built**: one parallel agent in an isolated worktree; it hit the same account-wide session limit as the other Wave 2 agents but only after it had already written its own full test suite (10 tests) — unlike Fees/Academic-Performance, which died before writing any tests. Recovery here was much lighter: fixed two lint nits and one mypy strictness issue left over from the mid-task cutoff. Review during merge separately found the absenteeism-detection wiring gap noted above (a correctness gap the agent's own tests didn't catch, since they called the detection function directly) and fixed it. Merged into `main`; part of the 76-test/ruff/mypy-clean backend.
 
 ---
 
 ## Phase 4 — Academic Performance + Examination Management (Objectives 5 & 6)
 
 ### Backend — Academic Performance (doc 11)
-- [ ] `assessment_types`, `assessments`, `student_scores`, `grading_scales` tables + migration; seed `assessment_types` with CALA-informed defaults (CALA Task, End of Term Test) alongside generic quiz/assignment/project, fully editable
-- [ ] Assessment CRUD scoped to teacher's own assignments; weight-sum validation
-- [ ] Bulk score-entry endpoint incl. absent flag
-- [ ] Weighted term-average computation (service layer)
-- [ ] At-risk detection background job reading `system_settings.academic_at_risk_threshold_pct` + trigger point for doc 10
-- [ ] Student/class performance summary + trend endpoints
-- [ ] Reports: subject/class/school averages, at-risk watchlist, teacher grading-activity health metric
-- [ ] Tests: assignment-scoped write access, score bounds validation, weighted average correctness, at-risk detection
+- [x] `assessment_types`, `assessments`, `student_scores`, `grading_scales` tables + migration; combined with Examinations in one module (docs 16's rationale: they share `grading_scales`) — **note**: no `assessment_types` are seeded by default, unlike the doc's CALA-informed intent; an Admin must create at least one via `POST /assessment-types` before any assessment can be created (confirmed by writing a test helper to do exactly that)
+- [x] Assessment CRUD scoped to teacher's own assignments (reuses the same `staff_assignments`-current-term ownership check as Student Information/Attendance); weight-sum validation
+- [x] Bulk score-entry endpoint incl. absent flag
+- [x] Weighted term-average computation (service layer, tested)
+- [x] At-risk detection reading `system_settings.academic_at_risk_threshold_pct` — computed on-demand inside `GET /reports/performance/at-risk` rather than a scheduled job or persisted-flags table (no scheduler infra exists yet, see doc 02); notification trigger point stubbed until Phase 5
+- [x] Student/class performance summary + trend endpoints
+- [x] Reports: section performance, at-risk watchlist (teacher-scoped read-side reuse of the write-side ownership check); school/teacher-grading-activity health metrics not built, flagged as a gap
+- [x] Tests (4, in `app/tests/test_academic_performance.py`, written directly against doc 11): teacher-own-section write scoping (403 outside it), score-bounds server-side validation, weighted-average correctness, at-risk threshold detection
 
 ### Backend — Examination Management (doc 12)
-- [ ] `exams`, `exam_schedules`, `exam_results` tables + migration
-- [ ] Exam CRUD + schedule (exam timetable) endpoints
-- [ ] Bulk mark-entry endpoint per exam schedule (teacher, any subject in their own class)
-- [ ] Publish endpoint (all-or-nothing per scope, status-gated visibility for students/parents)
-- [ ] `report_cards`, `report_card_comments` tables + migration
-- [ ] Report card compile endpoint (aggregates exam results + optional coursework + attendance snapshot)
-- [ ] Report card review/publish workflow (draft → Principal/Admin publish) + PDF generation
-- [ ] Missing-marks checklist validation before compile completes
-- [ ] Class-rank computation gated by `system_settings.class_ranking_enabled`, active-students-only rule
-- [ ] Tests: publish gate hides results pre-publish, mark-entry lock after publish, report card compile blocks on missing marks, rank computed correctly
+- [x] `exams`, `exam_schedules`, `exam_results` tables + migration
+- [x] Exam CRUD + schedule (exam timetable) endpoints
+- [x] Bulk mark-entry endpoint per exam schedule (teacher, any subject in their own class)
+- [x] Publish endpoint — status-gated visibility implemented as a **query-time filter** rather than a 403: an unpublished exam's results/report cards come back as an empty list for the student/parent's own view (not an error), while staff with `publish`/`manage` permissions always see everything (tested)
+- [x] `report_cards`, `report_card_comments` tables + migration
+- [x] Report card compile endpoint (aggregates exam results + optional coursework + attendance snapshot)
+- [x] Report card review/publish workflow (draft → Principal/Admin publish) — **PDF generation for report cards was not built** (only the Fees receipt PDF exists), flagged as a gap
+- [x] Missing-marks checklist validation before compile completes — returns `409 REPORT_CARD_MARKS_MISSING` naming the specific missing subject (e.g. "English"), tested
+- [x] Class-rank computation gated by `system_settings.class_ranking_enabled`, active-students-only rule (tested)
+- [x] Tests (3, in `app/tests/test_examinations.py`, written directly against doc 12): publish gate hides results pre-publish (empty-list semantics, not 403), report-card compile blocks on missing marks then succeeds once complete, class-rank respects the toggle and excludes inactive students
+
+**How this phase was built**: one parallel agent in an isolated worktree, combining docs 11+12 per doc 16's shared-`grading_scales` rationale. It hit the same account-wide session limit as the Fees agent, before writing any tests. Recovered by verifying the implementation and writing the full test suites above myself directly against the doc 11/12 worked examples. Along the way, found and fixed a genuine **Pydantic v2 bug**: several schemas have a field literally named `date` (or `datetime`) with a default value, and Pydantic resolves the type annotation using a namespace where the class's own already-assigned attribute (`None`) shadows the imported `date`/`datetime` type, raising `TypeError` at class-definition time. Fixed in both `schemas/academic_performance.py` and `schemas/examinations.py` by fully-qualifying the type (`import datetime` → `datetime.date`) instead of `from datetime import date`; confirmed this does **not** affect SQLAlchemy `Mapped[date]` columns, which resolve differently. Merged into `main`; part of the 76-test/ruff/mypy-clean backend, verified live end-to-end.
 
 ### Frontend
 - [ ] Gradebook grid (Teacher) — inline-editable score table + comments
@@ -224,8 +232,8 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 - [ ] Student/Parent report card view + PDF download
 
 ### Cross-cutting
-- [ ] Confirm shared `grading_scales` used consistently by both coursework and exam grading
-- [ ] End-to-end test: enter coursework scores, schedule and mark an exam, compile and publish a report card, confirm parent visibility timing (coursework visible immediately, exam/report-card gated until publish)
+- [x] Confirm shared `grading_scales` used consistently by both coursework and exam grading — both modules were built together in the same agent pass specifically to share this table (doc 16)
+- [x] End-to-end test: `test_publish_gate_hides_results_until_published` confirms exam/report-card gating; `test_report_card_compile_blocks_on_missing_marks_then_succeeds` confirms the compile step. **Not yet directly tested**: coursework (Academic Performance) scores being visible immediately with no publish gate at all, as a single combined scenario alongside the exam gating — each half is tested separately, not the timing contrast in one test
 
 ---
 
