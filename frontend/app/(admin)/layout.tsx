@@ -2,11 +2,14 @@
 
 import { AuthGuard } from "@/components/shared/auth-guard";
 import { AppShell, type NavItem } from "@/components/shared/app-shell";
-import { LayoutDashboard, CalendarRange, Settings, School } from "lucide-react";
+import { LayoutDashboard, CalendarRange, Settings, School, Users, UserCog, ClipboardList } from "lucide-react";
 import { BACK_OFFICE_ROLES } from "@/lib/roles";
 
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Students", href: "/students", icon: Users },
+  { label: "Staff", href: "/staff", icon: UserCog },
+  { label: "Assignments", href: "/staff/assignments", icon: ClipboardList },
   { label: "Academic Years", href: "/academics/years", icon: CalendarRange },
   { label: "Classes", href: "/academics/classes", icon: School },
   { label: "Subjects", href: "/academics/subjects", icon: CalendarRange },
