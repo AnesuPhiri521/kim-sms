@@ -240,17 +240,19 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 ## Phase 5 — Communication & Notifications (Objective 3)
 
 ### Backend (doc 10)
-- [ ] `notification_templates`, `notifications`, `announcements`, `events`, `notification_preferences` tables + migration
-- [ ] `NotificationService.send(...)` single choke-point service (channel routing, preference checks, audit)
-- [ ] In-app notification list/read/mark-all-read endpoints
-- [ ] Announcement CRUD with audience targeting + server-side scope enforcement
-- [ ] Event CRUD with audience targeting
-- [ ] Notification preferences endpoints (mandatory-category enforcement)
-- [ ] Email channel integration (SMTP client) behind the `NotificationChannel` interface — the only external channel; no SMS in this system
-- [ ] Digest-mode support (daily digest email job)
-- [ ] Wire real trigger calls from: Fees (invoice generated, payment received, due-date reminder, overdue), Attendance (absenteeism flag, excuse-request outcome), Academic Performance (at-risk alert), Examinations (result published, report card published), Identity (account invite, role change, password reset)
-- [ ] Delivery-status tracking + retry-with-backoff for failed email sends
-- [ ] Tests: mandatory-category cannot be disabled, audience-scope enforcement, trigger firing from each source module
+- [x] `notification_templates`, `notifications`, `announcements`, `events`, `notification_preferences` tables + migration
+- [x] `NotificationService.send(...)` single choke-point service: always creates the in-app notification (unless the recipient disabled it for a non-mandatory category — mandatory categories `fees`/`safety` can't disable it, enforced both in `update_preferences` and re-checked in `send` itself), attempts email only if the per-category preference wants it, defers to `pending_digest` instead of sending when `digest_mode` is on, never lets an email/SMTP exception block the in-app row (caught, recorded as `status="failed"`)
+- [x] In-app notification list/read/mark-all-read endpoints — scoped by `user_id` only, no permission code (every role can see their own, per doc 10)
+- [x] Announcement CRUD with audience targeting + server-side scope enforcement — Admin/Principal (`announcements:publish`) can target anything; Teacher (`announcements:publish_scoped`) is restricted to their own current-term section (reuses the `staff_assignments`+`Term.is_current` ownership pattern already used elsewhere); a `safety`-category announcement (the doc's "mandatory" subset) is Admin/Principal-only. **Bug caught by my own test, not by review**: my first pass gated both announcements and events through one shared scoping helper OR'd on `announcements:publish OR events:manage` — since every Teacher holds `events:manage`, that let a Teacher bypass the announcement section-restriction entirely. Fixed by splitting the check to recognize only `announcements:publish`.
+- [x] Event CRUD — **no audience-scoping restriction**, deliberately: doc 10 defines a single `events:manage` code held identically by Admin/Principal/Teacher with no scoped variant and no "own class only" rule for events in the doc (unlike announcements' explicit two-code split), so the router's permission dependency is the complete check
+- [x] Notification preferences endpoints (mandatory-category enforcement, tested)
+- [x] Email channel integration behind a thin `smtplib`-based wrapper (`_send_email`, config already existed in `Settings` from Phase 0) — no real SMTP server in dev/test, so tests monkeypatch it rather than attempting a network call
+- [x] Digest-mode support — `digest_mode=True` records `status="pending_digest"` instead of attempting immediate delivery; **no scheduled digest-sending job** actually dispatches these yet (no scheduler infra exists in this codebase, same deferral as the attendance/absenteeism and academic at-risk detection jobs)
+- [ ] Wire real trigger calls from: Fees (invoice generated, payment received, due-date reminder, overdue), Attendance (absenteeism flag, excuse-request outcome), Academic Performance (at-risk alert), Examinations (result published, report card published), Identity (account invite, role change, password reset) — **not done**. Deliberately out of scope for this pass: this module was built standalone (no other module's files touched) so it could be developed independently; wiring `NotificationService.send(...)` calls into each of those five modules' existing write paths is a distinct follow-up pass that touches other modules' files one at a time.
+- [ ] Delivery-status tracking exists (`not_requested`/`pending_digest`/`sent`/`failed`) but **no retry-with-backoff** for failed sends — not built
+- [x] Tests (9, in `app/tests/test_communication.py`): in-app-by-default, non-mandatory category disable suppresses the notification, mandatory category cannot be disabled (409) and still sends even against a stale disabled row, email failure doesn't block the in-app row, digest mode defers without attempting delivery, mark-read/mark-all-read scoped to own notifications, teacher section-scoping (the bug above), section-targeted fan-out reaches guardians+teacher, events:manage permission gate. **Not tested**: trigger firing from each source module (can't be, until the wiring above exists)
+
+**How this phase was built**: both parallel agents originally assigned this (one for the module itself, one for an unrelated Fees/Examinations gap-closing pass) hit the account-wide session limit before making any file changes — worktree isolation meant there was nothing to recover, unlike every prior Wave 2 module. Built directly instead: 74→75 source files, 76→85 tests, ruff/mypy clean throughout, verified live end-to-end against a running server (announcement fan-out, notification listing, mandatory-category rejection all exercised over real HTTP, not just pytest).
 
 ### Frontend
 - [ ] Notification bell + dropdown (global header, all role layouts)
