@@ -10,6 +10,13 @@ from app.models.academics_core import (  # noqa: F401
     Subject,
     Term,
 )
+from app.models.attendance import (  # noqa: F401
+    AbsenteeismFlag,
+    AttendanceDailySummary,
+    AttendanceRecord,
+    AttendanceSession,
+    ExcuseRequest,
+)
 from app.models.identity import (  # noqa: F401
     AuditLog,
     Permission,
