@@ -302,6 +302,54 @@ def test_discount_below_threshold_auto_approved_above_requires_approval(
     assert approved.json()["status"] == "approved"
 
 
+def test_student_discounts_list_finds_pending_queue(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    admin = login_as("admin")
+    accountant = login_as("accountant")
+    student_id = fee_setup["student"].id
+
+    threshold_set = client.patch(
+        "/api/v1/system-settings/fee_discount_approval_threshold_cents", json={"value": "1000"}, headers=admin
+    )
+    assert threshold_set.status_code == 200, threshold_set.text
+
+    discount = client.post(
+        "/api/v1/discounts",
+        json={
+            "name": "Needs approval",
+            "type": "fixed",
+            "value": 5000,
+            "applies_to": "student",
+            "requires_approval": True,
+        },
+        headers=accountant,
+    )
+    applied = client.post(f"/api/v1/discounts/{discount.json()['id']}/apply/{student_id}", headers=accountant)
+    assert applied.status_code == 201, applied.text
+    assert applied.json()["status"] == "pending"
+
+    # Before this endpoint existed, there was no way for Admin/Principal to
+    # discover this row at all — only to act on it if they already had its
+    # id from somewhere else.
+    admin_queue = client.get("/api/v1/student-discounts?status=pending", headers=admin)
+    assert admin_queue.status_code == 200, admin_queue.text
+    assert admin_queue.json()["meta"]["total"] == 1
+    assert admin_queue.json()["data"][0]["id"] == applied.json()["id"]
+
+    # `fees:create_discount` without `fees:report`/`fees:approve_discount`
+    # would be scoped to only the caller's own requests, but the seeded
+    # Accountant role holds `fees:report` too, so it already sees everyone's.
+    accountant_queue = client.get("/api/v1/student-discounts?status=pending", headers=accountant)
+    assert accountant_queue.json()["meta"]["total"] == 1
+
+    approve = client.post(f"/api/v1/student-discounts/{applied.json()['id']}/approve", headers=admin)
+    assert approve.status_code == 200, approve.text
+
+    after_approval = client.get("/api/v1/student-discounts?status=pending", headers=admin)
+    assert after_approval.json()["meta"]["total"] == 0
+
+
 # --------------------------------------------------------------------- void --
 
 

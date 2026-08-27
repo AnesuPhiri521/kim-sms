@@ -5,9 +5,10 @@ allocation/credit/discount logic lives in `app.services.fee_financial`.
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import CurrentUser, get_current_user, require_permission
@@ -476,6 +477,41 @@ def list_discounts(
     repo = service.DiscountRepository(db)
     rows, total = repo.list(params)
     return _page(rows, params, total, DiscountRead)
+
+
+@router.get("/student-discounts", response_model=Page[StudentDiscountRead])
+def list_student_discounts(
+    status_filter: str | None = Query(None, alias="status"),
+    student_id: str | None = None,
+    params: CommonListParams = Depends(common_list_params),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(
+        require_any_permission("fees:create_discount", "fees:approve_discount", "fees:report")
+    ),
+) -> Page[StudentDiscountRead]:
+    """Was missing entirely — `approve`/`reject` existed but nothing let
+    Principal/Admin discover which `StudentDiscount` rows are actually
+    pending (doc 08 UI: "pending-approval queue"), only act on one once
+    they already had its id from somewhere else. `fees:create_discount`
+    (Accountant, who requests but cannot approve their own request) is
+    scoped to their own requests only; `fees:approve_discount`/
+    `fees:report` see everyone's.
+    """
+
+    query = select(StudentDiscount)
+    if status_filter:
+        query = query.where(StudentDiscount.status == status_filter)
+    if student_id:
+        query = query.where(StudentDiscount.student_id == student_id)
+    can_see_all = current_user.has_permission("fees:approve_discount") or current_user.has_permission(
+        "fees:report"
+    )
+    if not can_see_all:
+        query = query.where(StudentDiscount.created_by == current_user.id)
+
+    repo = service.StudentDiscountRepository(db)
+    rows, total = repo.list(params, query=query)
+    return _page(rows, params, total, StudentDiscountRead)
 
 
 @router.post("/discounts", response_model=DiscountRead, status_code=201)
