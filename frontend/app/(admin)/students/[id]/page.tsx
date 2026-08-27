@@ -68,6 +68,14 @@ import {
 } from "@/lib/schemas/student-information";
 import { ENROLLMENT_STATUS_BADGE_VARIANT, ENROLLMENT_STATUS_LABELS } from "@/lib/display/student";
 import { ApiError } from "@/lib/api/client";
+import { FeeBalanceCard } from "@/components/fees/fee-balance-card";
+import { CreditPanel } from "@/components/fees/credit-panel";
+import { PaymentHistory } from "@/components/fees/payment-history";
+import { RecordPaymentDialog } from "@/components/fees/record-payment-dialog";
+import { TermFeeHistory } from "@/components/fees/term-fee-history";
+import { FeeLedgerTable } from "@/components/fees/fee-ledger-table";
+import { useStudentFeeBalance } from "@/hooks/use-fees";
+import { useCurrencyCode } from "@/hooks/use-currency";
 
 /** Same trick as the registration wizard (see students/new/page.tsx): the
  * backend's 409 embeds the existing guardian's id as `(id=<id>)` in the
@@ -1065,6 +1073,39 @@ function GuardiansTab({
   );
 }
 
+function FeesTab({ studentId }: { studentId: string }) {
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  const balanceQuery = useStudentFeeBalance(studentId);
+  const currencyCode = useCurrencyCode(balanceQuery.data?.currency_code);
+
+  return (
+    <div className="space-y-6">
+      <FeeBalanceCard
+        balance={balanceQuery.data}
+        isLoading={balanceQuery.isLoading}
+        isError={balanceQuery.isError}
+        error={balanceQuery.error}
+        onRetry={() => balanceQuery.refetch()}
+        actions={<Button onClick={() => setRecordPaymentOpen(true)}>Record payment</Button>}
+      />
+      <TermFeeHistory studentId={studentId} currencyCode={currencyCode} />
+      <CreditPanel
+        studentId={studentId}
+        currencyCode={currencyCode}
+        availableCreditCents={balanceQuery.data?.available_credit_cents}
+      />
+      <PaymentHistory studentId={studentId} currencyCode={currencyCode} />
+      <FeeLedgerTable studentId={studentId} currencyCode={currencyCode} />
+      <RecordPaymentDialog
+        studentId={studentId}
+        open={recordPaymentOpen}
+        onOpenChange={setRecordPaymentOpen}
+        currencyCode={currencyCode}
+      />
+    </div>
+  );
+}
+
 function DocumentsTab({ studentId }: { studentId: string }) {
   const { data, isLoading, isError, error, refetch } = useStudentDocuments(studentId);
   const verifyMutation = useVerifyStudentDocument();
@@ -1264,6 +1305,7 @@ export default function StudentProfilePage() {
           <TabsTrigger value="guardians">Guardians</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="history">Academic History</TabsTrigger>
+          <TabsTrigger value="fees">Fees</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4">
           <OverviewTab studentId={studentId} student={student} sectionLabel={sectionLabel} />
@@ -1276,6 +1318,9 @@ export default function StudentProfilePage() {
         </TabsContent>
         <TabsContent value="history" className="mt-4">
           <HistoryTab studentId={studentId} yearLabel={yearLabel} sectionLabel={sectionLabel} />
+        </TabsContent>
+        <TabsContent value="fees" className="mt-4">
+          <FeesTab studentId={studentId} />
         </TabsContent>
       </Tabs>
 
