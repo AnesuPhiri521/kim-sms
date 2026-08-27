@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
 from app.models.academics_core import AcademicYear, SchoolClass, Section
+from app.models.student_information import Guardian, Student
 from app.services import student_information as service
 from app.tests.conftest import create_user_with_role
 
@@ -435,9 +436,7 @@ def test_section_roster_gated_by_view_class_permission(
     # A Teacher with no `staff_assignments` row for this section is
     # scoped out entirely (doc 04/13) — permission alone isn't enough.
     unassigned_teacher_headers = login_as("teacher", email="unassigned-teacher@example.com")
-    forbidden = client.get(
-        f"/api/v1/sections/{section_b.id}/students", headers=unassigned_teacher_headers
-    )
+    forbidden = client.get(f"/api/v1/sections/{section_b.id}/students", headers=unassigned_teacher_headers)
     assert forbidden.status_code == 403
 
     parent_headers = login_as("parent")
@@ -545,3 +544,66 @@ def test_list_students_envelope_and_filters(
 
     status_response = client.get("/api/v1/students", headers=headers, params={"status": "withdrawn"})
     assert status_response.json()["meta"]["total"] == 0
+
+
+# ---------------------------------------------------------- self-discovery --
+
+
+def test_students_me_resolves_own_record_for_a_student_login(
+    client: TestClient, login_as: Callable[[str], dict], seeded_db: Session
+) -> None:
+    registrar_headers = login_as("registrar")
+    guardian = _create_guardian(client, registrar_headers)
+    student = _create_student(client, registrar_headers, guardian["id"])
+
+    student_user = create_user_with_role(seeded_db, "student", "self-discover@example.com")
+    row = seeded_db.get(Student, student["id"])
+    assert row is not None
+    row.user_id = student_user.id
+    seeded_db.commit()
+
+    login = client.post(
+        "/api/v1/auth/login", json={"email": "self-discover@example.com", "password": "Password123!"}
+    )
+    student_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    response = client.get("/api/v1/students/me", headers=student_headers)
+    assert response.status_code == 200, response.text
+    assert [row["id"] for row in response.json()] == [student["id"]]
+
+
+def test_students_me_resolves_linked_children_for_a_parent_login(
+    client: TestClient, login_as: Callable[[str], dict], seeded_db: Session
+) -> None:
+    registrar_headers = login_as("registrar")
+
+    parent_user = create_user_with_role(seeded_db, "parent", "self-discover-parent@example.com")
+    guardian = _create_guardian(client, registrar_headers)
+
+    guardian_row = seeded_db.get(Guardian, guardian["id"])
+    assert guardian_row is not None
+    guardian_row.user_id = parent_user.id
+    seeded_db.commit()
+
+    child_a = _create_student(client, registrar_headers, guardian["id"], first_name="ChildA")
+    child_b = _create_student(client, registrar_headers, guardian["id"], first_name="ChildB")
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "self-discover-parent@example.com", "password": "Password123!"},
+    )
+    parent_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    response = client.get("/api/v1/students/me", headers=parent_headers)
+    assert response.status_code == 200, response.text
+    returned_ids = {row["id"] for row in response.json()}
+    assert returned_ids == {child_a["id"], child_b["id"]}
+
+
+def test_students_me_empty_for_a_parent_with_no_linked_children(
+    client: TestClient, login_as: Callable[..., dict]
+) -> None:
+    parent_headers = login_as("parent", "no-children@example.com")
+    response = client.get("/api/v1/students/me", headers=parent_headers)
+    assert response.status_code == 200, response.text
+    assert response.json() == []

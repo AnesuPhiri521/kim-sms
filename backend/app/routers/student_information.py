@@ -10,7 +10,13 @@ from app.core.errors import AppError
 from app.core.list_params import CommonListParams, common_list_params
 from app.db.session import get_db
 from app.models.academics_core import Section
-from app.models.student_information import Guardian, Student, StudentAcademicHistory, StudentDocument
+from app.models.student_information import (
+    Guardian,
+    Student,
+    StudentAcademicHistory,
+    StudentDocument,
+    StudentGuardian,
+)
 from app.schemas.common import Page, PageMeta
 from app.schemas.student_information import (
     AllocateSectionRequest,
@@ -127,6 +133,40 @@ def list_students(
 
     rows, total = service.StudentRepository(db).list(params, query=query)
     return _page(rows, params, total, StudentRead)
+
+
+@router.get("/students/me", response_model=list[StudentRead])
+def get_my_students(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission("students:view_own")),
+) -> list[Student]:
+    """Self-discovery for a Student/Parent frontend: no session field and
+    no other endpoint tells a `students:view_own` caller which student
+    record(s) are theirs (`GET /students` requires the unscoped
+    `students:view`), which previously forced the frontend into an
+    unreliable workaround (inferring a student id from notification
+    history). Registered before `GET /students/{student_id}` — same
+    route-ordering pitfall as the report-card `.pdf` route: a bare path
+    param would otherwise swallow the literal `/me` first.
+
+    Returns a Student's own record as a single-item list, or every
+    actively-linked child for a Guardian — never both, since a user only
+    ever holds one identity in this system.
+    """
+
+    own = db.scalar(select(Student).where(Student.user_id == current_user.id))
+    if own is not None:
+        return [own]
+
+    children = list(
+        db.scalars(
+            select(Student)
+            .join(StudentGuardian, StudentGuardian.student_id == Student.id)
+            .join(Guardian, StudentGuardian.guardian_id == Guardian.id)
+            .where(Guardian.user_id == current_user.id, StudentGuardian.is_active.is_(True))
+        ).all()
+    )
+    return children
 
 
 @router.get("/students/{student_id}", response_model=StudentDetailRead)
