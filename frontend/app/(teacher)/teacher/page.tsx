@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
 import { CardSkeleton } from "@/components/shared/card-skeleton";
 import { ErrorState } from "@/components/shared/error-state";
@@ -215,7 +217,20 @@ function MyProfileTab() {
 export default function TeacherDashboardPage() {
   return (
     <div className="space-y-6">
-      <PageHeader title="Teacher Dashboard" description="Your class roster and profile, read-only." />
+      <PageHeader
+        title="Teacher Dashboard"
+        description="Your class roster and profile, read-only."
+        actions={
+          <div className="flex gap-2">
+            <Button asChild variant="outline">
+              <Link href="/teacher/attendance">Take attendance</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/teacher/assessments">Assessments</Link>
+            </Button>
+          </div>
+        }
+      />
       <Tabs defaultValue="class">
         <TabsList>
           <TabsTrigger value="class">My Class</TabsTrigger>

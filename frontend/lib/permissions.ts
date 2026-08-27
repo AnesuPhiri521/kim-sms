@@ -35,6 +35,10 @@ const ROLE_PERMISSIONS: Record<RoleCode, readonly string[]> = {
     "students:view",
     "academics_core:view",
     "grading_scales:manage",
+    "attendance:edit_locked",
+    "attendance:report",
+    "attendance:mark",
+    "attendance:edit",
   ],
   principal: [
     "announcements:publish",
@@ -45,7 +49,7 @@ const ROLE_PERMISSIONS: Record<RoleCode, readonly string[]> = {
     "academics_core:view",
     "grading_scales:manage",
   ],
-  registrar: ["notifications:send", "students:view", "academics_core:view"],
+  registrar: ["notifications:send", "students:view", "academics_core:view", "attendance:report"],
   accountant: ["notifications:send", "academics_core:view"],
   teacher: [
     "announcements:publish_scoped",
@@ -53,9 +57,12 @@ const ROLE_PERMISSIONS: Record<RoleCode, readonly string[]> = {
     "exam_marks:enter_own",
     "report_cards:compile",
     "academics_core:view",
+    "attendance:mark",
+    "attendance:edit",
+    "attendance:view_own",
   ],
-  student: ["notifications:view_own", "exam_results:view_own"],
-  parent: ["notifications:view_own", "exam_results:view_own"],
+  student: ["notifications:view_own", "exam_results:view_own", "attendance:view_own"],
+  parent: ["notifications:view_own", "exam_results:view_own", "attendance:view_own"],
 };
 
 /** True if any of the caller's roles grants `code`. */
