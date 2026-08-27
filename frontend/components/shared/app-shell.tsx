@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, GraduationCap, LogOut, Menu, User as UserIcon } from "lucide-react";
+import { GraduationCap, LogOut, Menu, User as UserIcon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { NotificationBell } from "@/components/shared/notification-bell";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 
@@ -96,9 +97,7 @@ export function AppShell({ navItems, children }: AppShellProps) {
         </div>
 
         <div className="ml-auto flex items-center gap-1">
-          <Button variant="ghost" size="icon" aria-label="Notifications">
-            <Bell className="size-5" />
-          </Button>
+          <NotificationBell />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="gap-2 px-2">
