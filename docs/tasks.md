@@ -146,15 +146,17 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 **How this phase was built**: one parallel agent in an isolated worktree; it hit an account-wide session limit mid-task before writing tests or adding the `fpdf2` dependency its own receipt code needed. Recovered by verifying the implementation, adding `fpdf2>=2.8` to `pyproject.toml`, and writing the full test suite above myself directly against doc 08's worked examples (not generic coverage) — this is where the underpayment/catch-up/credit-ordering rules were actually verified against the spec for the first time. Merged into `main`, 76 backend tests passing overall, ruff/mypy clean, live end-to-end smoke test reproducing doc 08's underpayment example against a real running server.
 
 ### Frontend
-- [ ] Fee structure admin table + form, filterable (term/class) via shared `<FilterBar>`
-- [ ] Invoice/billing dashboard (outstanding balances, `<FilterBar>`: term/class/section/status/overdue, bulk reminder trigger stub for doc 10)
-- [ ] Student fee ledger view (table + summary cards), filterable by term/entry-type
-- [ ] **Term Fee History** component — Term 1/Term 2/Term 3 rows (billed/paid/credit/balance/status) with academic-year switcher; built once, reused on both the student profile and the parent view
-- [ ] Record-payment dialog (amount/method/reference, live allocation preview showing the oldest-first split across outstanding invoices, manual override, "refund instead" option when amount exceeds every outstanding invoice)
-- [ ] Credit management panel (available-credit card, apply-to-invoice action, refund action, application history)
-- [ ] Discount management UI incl. pending-approval badge/queue for Principal/Admin
-- [ ] Financial reports dashboard (charts: collection rate, by-category breakdown, per-term comparison, credit liability)
-- [ ] Parent view: balance card, Term Fee History component (reused), payment history, per-child switcher, "I paid" submission flow
+- [ ] Fee structure admin table + form, filterable (term/class) via shared `<FilterBar>` — API/schema/hook layer exists (`lib/api/fee-financial.ts`, `hooks/use-fees.ts`), no page yet
+- [ ] Invoice/billing dashboard (outstanding balances, `<FilterBar>`: term/class/section/status/overdue, bulk reminder trigger stub for doc 10) — same: hooks exist, no page
+- [x] Student fee ledger view (table), filterable by entry-type — `components/fees/fee-ledger-table.tsx`, wired into the student profile's new Fees tab. **Not filterable by term** (only entry-type) — a small gap, not blocking
+- [x] **Term Fee History** component — `components/fees/term-fee-history.tsx`, academic-year switcher, wired into the student profile's Fees tab; not yet reused on a parent view (parent screens aren't built yet)
+- [x] Record-payment dialog — `components/fees/record-payment-dialog.tsx`, manual allocation override supported as an "advanced" toggle, idempotency-key generated client-side. **No live oldest-first allocation preview and no "refund instead" option** — the component's own docstring notes the preview mirrors the server's walk client-side for display only, never sent as data
+- [x] Credit management panel — `components/fees/credit-panel.tsx`, apply/refund/history, wired into the Fees tab
+- [ ] Discount management UI incl. pending-approval badge/queue for Principal/Admin — not built
+- [ ] Financial reports dashboard — not built (backend reports exist: fee-collection, outstanding-balances, fee-credit-liability, discount-utilization, cash-up-report)
+- [ ] Parent view — not built (blocked on nothing now that `GET /students/me` exists for per-child resolution; just not reached yet)
+
+**Frontend status**: recovered from four Wave 3 agents that all hit the account-wide session limit again — unlike earlier waves, real work survived this time (they weren't run in isolated worktrees, so everything left in the working tree was recoverable, just uncommitted). What's done: the full API/schema/hook/display layer for all four remaining modules (Fees, Attendance, Academic Performance, Examinations) plus Communication's hooks, `lib/money.ts`, `lib/permissions.ts`, the Fees components above wired into a real "Fees" tab, and the take-attendance screen wired into a real teacher route. Fixed three real `react-hooks/set-state-in-effect` lint errors (this project's eslint config enforces it as an error) before committing — see the Attendance section below for the take-attendance-panel one; `record-payment-dialog.tsx`'s reset-on-open effect was replaced by splitting the stateful form into its own component that only mounts while the dialog is open; `term-fee-history.tsx`'s year-adopt effect became a derived value computed at render time. Also found and fixed a real backend gap along the way: no self-discovery endpoint existed for a Student/Parent frontend to find "which student is me" — added `GET /students/me` (doc 07) and simplified the agent's notification-history-based workaround to use it.
 
 ### Cross-cutting
 - [ ] Wire student-profile fee summary rollup (doc 07 profile tab), including Term Fee History, to real data — blocked on the Fees frontend, not yet built
@@ -178,11 +180,13 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 - [x] Tests (10, in `app/tests/test_attendance.py`): bulk-marking transactionality, session idempotent get-or-create, future-date rejection, lock-window edit allowed/rejected + admin override audited, teacher-scoped 403 on another section, absenteeism detection (updated to assert the flag now opens automatically on the 3rd absence rather than requiring a manual call), excuse-request approval, parent/student own-record-only scoping
 
 ### Frontend
-- [ ] Take-attendance screen (roster + toggle chips, bulk save, lock-state indicator)
-- [ ] Attendance calendar view (Student/Parent)
-- [ ] Section attendance report (table + trend chart)
-- [ ] Absenteeism watchlist screen with drill-down
-- [ ] Excuse-request inbox (Teacher approve/reject)
+- [x] Take-attendance screen (roster + toggle chips, bulk save, lock-state indicator) — `components/attendance/take-attendance-panel.tsx`, wired into a real route at `app/(teacher)/teacher/attendance/page.tsx`, linked from the teacher dashboard. Client-side lock hint (from `attendance_edit_lock_hours`) plus the server's authoritative per-row lock rejection promoting the panel into locked state; Admin override path present, gated by a client-side permission mirror (not a real authorization boundary — the backend still enforces it)
+- [x] Attendance calendar view (Student/Parent) — `components/attendance/attendance-calendar.tsx` and `student-attendance-view.tsx` built, **not yet wired into a route**
+- [ ] Section attendance report (table + trend chart) — not built
+- [ ] Absenteeism watchlist screen with drill-down — not built
+- [ ] Excuse-request inbox (Teacher approve/reject) — not built; note the backend has no `GET /excuse-requests` list endpoint either (only submit/approve/reject), a real gap this screen will need closed first
+
+**Bug fixed before committing**: `take-attendance-panel.tsx`'s mark-prefill logic originally copied server-derived existing marks into local state via a `useEffect` (a `react-hooks/set-state-in-effect` lint error under this project's config). Rewritten as a render-time derived lookup (`effectiveRow(studentId)`: a local edit if present, else the server's existing mark, else "present") instead of ever syncing server state into local state.
 
 ### Cross-cutting
 - [ ] Wire student-profile attendance summary rollup (doc 07) to real data — blocked on the Attendance frontend, not yet built
@@ -219,17 +223,13 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 **How this phase was built**: one parallel agent in an isolated worktree, combining docs 11+12 per doc 16's shared-`grading_scales` rationale. It hit the same account-wide session limit as the Fees agent, before writing any tests. Recovered by verifying the implementation and writing the full test suites above myself directly against the doc 11/12 worked examples. Along the way, found and fixed a genuine **Pydantic v2 bug**: several schemas have a field literally named `date` (or `datetime`) with a default value, and Pydantic resolves the type annotation using a namespace where the class's own already-assigned attribute (`None`) shadows the imported `date`/`datetime` type, raising `TypeError` at class-definition time. Fixed in both `schemas/academic_performance.py` and `schemas/examinations.py` by fully-qualifying the type (`import datetime` → `datetime.date`) instead of `from datetime import date`; confirmed this does **not** affect SQLAlchemy `Mapped[date]` columns, which resolve differently. Merged into `main`; part of the 76-test/ruff/mypy-clean backend, verified live end-to-end.
 
 ### Frontend
-- [ ] Gradebook grid (Teacher) — inline-editable score table + comments
-- [ ] Assessment list per subject/section with weight-sum indicator
-- [ ] Student/Parent performance page (subject cards, trend sparklines)
-- [ ] Teacher performance heatmap dashboard (all subjects × students, own class)
-- [ ] Principal/Admin performance analytics dashboard
-- [ ] Exam scheduler (calendar/table exam-timetable builder)
-- [ ] Exam mark-entry grid
-- [ ] Publish control screen (Principal/Admin) with pre-publish summary
-- [ ] Report card compiler (Teacher) with class-wide completion progress
-- [ ] Report card review/publish queue (Principal/Admin)
-- [ ] Student/Parent report card view + PDF download
+- [x] Assessment types admin CRUD (`app/(admin)/academics/assessment-types/page.tsx`) and grading scales admin CRUD (`app/(admin)/academics/grading-scales/page.tsx`, shared with Examinations per doc 16) — both seed-gap-aware (no assessment types are seeded by default; an empty state points there)
+- [x] Assessment list per subject/section with weight-sum indicator (`app/(teacher)/teacher/assessments/page.tsx`) — combined with score entry rather than a separate gradebook grid screen
+- [ ] Gradebook grid (Teacher) — the assessments page above handles create/edit; a dedicated inline-editable bulk score-entry grid is not yet built
+- [ ] Student/Parent performance page — not built
+- [ ] Teacher performance heatmap dashboard — not built
+- [ ] Principal/Admin performance analytics dashboard — not built (backend at-risk/section reports exist)
+- [ ] Exam scheduler, exam mark-entry grid, publish control screen, report card compiler/review queue, Student/Parent report card view + PDF download — none built yet; API/schema/hook layer exists (`lib/api/examinations.ts`, `hooks/use-exams.ts`, `hooks/use-report-cards.ts`)
 
 ### Cross-cutting
 - [x] Confirm shared `grading_scales` used consistently by both coursework and exam grading — both modules were built together in the same agent pass specifically to share this table (doc 16)
@@ -262,12 +262,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 **How this phase was built**: both parallel agents originally assigned this (one for the module itself, one for an unrelated Fees/Examinations gap-closing pass) hit the account-wide session limit before making any file changes — worktree isolation meant there was nothing to recover, unlike every prior Wave 2 module. Built directly instead, then closed the Fees/Examinations gaps and fixed a security-review finding in a second pass, then wired the cross-module trigger calls in a third: 76→94 tests total, ruff/mypy clean throughout, verified live end-to-end against a running server (announcement fan-out, notification listing, mandatory-category rejection all exercised over real HTTP, not just pytest).
 
 ### Frontend
-- [ ] Notification bell + dropdown (global header, all role layouts)
-- [ ] Notification center page (list, filters, mark read)
-- [ ] Announcement composer (Admin/Teacher) with audience picker
-- [ ] School calendar (events, month/list view)
-- [ ] Admin notification settings (template editor, channel enable/disable per category — in-app/email)
-- [ ] User notification-preferences screen
+- [ ] Notification bell + dropdown, notification center, announcement composer, school calendar, admin notification settings, user notification-preferences screen — none built yet; API/schema/hook layer exists (`lib/api/communication.ts`, `hooks/use-notifications.ts`, `hooks/use-announcements.ts`, `hooks/use-events.ts`, `hooks/use-notification-preferences.ts`, `hooks/use-notification-templates.ts`)
 
 ### Cross-cutting
 - [x] End-to-end test: absenteeism triggers alert (extended `test_excuse_request_approval_flips_status_to_excused`'s parent to assert the notification), result publish and report-card publish trigger notifications (extended the corresponding examinations tests), invoice-generated/payment-received trigger notifications (new `test_invoice_generation_and_payment_notify_the_guardian`). **Not covered**: overdue-fee-triggers-reminder — that trigger itself isn't built yet (see the Fees due-date-reminder/overdue-alert gap above)
