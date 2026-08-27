@@ -4,6 +4,7 @@ Run with: uv run python -m app.db.seed
 """
 
 import logging
+import secrets
 from datetime import date
 from uuid import uuid4
 
@@ -174,13 +175,18 @@ _DEFAULT_ADMIN_PASSWORD = "ChangeMe123!"
 
 
 def seed_admin_user(db: Session) -> None:
-    admin_email = settings.admin_email
-    if settings.environment != "development" and settings.admin_password == _DEFAULT_ADMIN_PASSWORD:
-        raise RuntimeError(
-            "ADMIN_PASSWORD is still the placeholder default — set a real value in .env "
-            "before seeding a non-development environment."
-        )
+    """Never writes the placeholder default password to the database, in
+    any environment — checking `settings.environment` to decide whether
+    the default is "safe enough" was tried first and rejected: that
+    setting defaults to `"development"` when unset, so a production
+    deployment that simply forgot to set `ENVIRONMENT` would silently
+    fall through the guard and seed the well-known credential anyway
+    (fail-open on a missing env var). Generating a random password
+    whenever the operator hasn't supplied a real one removes that
+    failure mode entirely rather than trying to detect it.
+    """
 
+    admin_email = settings.admin_email
     existing = db.scalar(select(User).where(User.email == admin_email))
     if existing is not None:
         return
@@ -188,21 +194,33 @@ def seed_admin_user(db: Session) -> None:
     if admin_role is None:
         raise RuntimeError("admin role must be seeded before the admin user")
 
+    if settings.admin_password == _DEFAULT_ADMIN_PASSWORD:
+        password = secrets.token_urlsafe(18)
+        logger.warning(
+            "ADMIN_PASSWORD was not set (or left at the placeholder) — generated a random "
+            "one-time password for %s: %s — this is logged nowhere else, and "
+            "must_change_password is set so it must be rotated on first login.",
+            admin_email,
+            password,
+        )
+    else:
+        password = settings.admin_password
+        logger.warning(
+            "Admin user created: %s — must_change_password is set, so this password "
+            "must be rotated on first login.",
+            admin_email,
+        )
+
     user = User(
         id=str(uuid4()),
         email=admin_email,
-        password_hash=hash_password(settings.admin_password),
+        password_hash=hash_password(password),
         status="active",
         must_change_password=True,
     )
     user.roles = [admin_role]
     db.add(user)
     db.flush()
-    logger.warning(
-        "Admin user created: %s — must_change_password is set, so this password "
-        "must be rotated on first login.",
-        admin_email,
-    )
 
 
 def run_seed(db: Session) -> None:
