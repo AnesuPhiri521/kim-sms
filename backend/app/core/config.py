@@ -21,6 +21,11 @@ class Settings(BaseSettings):
 
     environment: str = "development"
 
+    # Default super-admin seeded by `python -m app.db.seed` when no user
+    # with this email exists yet. Override in .env for real deployments.
+    admin_email: str = "admin@example.com"
+    admin_password: str = "ChangeMe123!"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

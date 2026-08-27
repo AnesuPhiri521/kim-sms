@@ -10,6 +10,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.permissions import PERMISSIONS, ROLE_DEFINITIONS, ROLE_PERMISSIONS
 from app.core.security import hash_password
 from app.db.session import SessionLocal
@@ -169,19 +170,28 @@ def seed_demo_class(db: Session) -> None:
     logger.info("demo class 'Grade 1' + section 'Grade 1 A' seeded")
 
 
+_DEFAULT_ADMIN_PASSWORD = "ChangeMe123!"
+
+
 def seed_admin_user(db: Session) -> None:
-    existing = db.scalar(select(User).where(User.email == "admin@example.com"))
+    admin_email = settings.admin_email
+    if settings.environment != "development" and settings.admin_password == _DEFAULT_ADMIN_PASSWORD:
+        raise RuntimeError(
+            "ADMIN_PASSWORD is still the placeholder default — set a real value in .env "
+            "before seeding a non-development environment."
+        )
+
+    existing = db.scalar(select(User).where(User.email == admin_email))
     if existing is not None:
         return
     admin_role = db.scalar(select(Role).where(Role.code == "admin"))
     if admin_role is None:
         raise RuntimeError("admin role must be seeded before the admin user")
 
-    demo_password = "ChangeMe123!"
     user = User(
         id=str(uuid4()),
-        email="admin@example.com",
-        password_hash=hash_password(demo_password),
+        email=admin_email,
+        password_hash=hash_password(settings.admin_password),
         status="active",
         must_change_password=True,
     )
@@ -189,8 +199,9 @@ def seed_admin_user(db: Session) -> None:
     db.add(user)
     db.flush()
     logger.warning(
-        "Demo admin created: admin@example.com / %s — CHANGE THIS before any real deployment.",
-        demo_password,
+        "Admin user created: %s — must_change_password is set, so this password "
+        "must be rotated on first login.",
+        admin_email,
     )
 
 
