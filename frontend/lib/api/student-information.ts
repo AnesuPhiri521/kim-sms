@@ -53,6 +53,17 @@ export async function getStudent(studentId: string): Promise<StudentDetail> {
   return studentDetailSchema.parse(data);
 }
 
+/**
+ * Self-discovery for a Student/Parent login: their own record (a
+ * single-item array), or every actively-linked child for a Guardian.
+ * Requires `students:view_own` — a caller holding the unscoped
+ * `students:view` instead should use `listStudents`.
+ */
+export async function getMyStudents(): Promise<Student[]> {
+  const data = await apiFetch<unknown[]>("/students/me");
+  return data.map((row) => studentSchema.parse(row));
+}
+
 export async function createStudent(payload: StudentCreate): Promise<Student> {
   const data = await apiFetch<unknown>("/students", { method: "POST", body: payload });
   return studentSchema.parse(data);
