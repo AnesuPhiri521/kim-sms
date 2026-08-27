@@ -148,3 +148,59 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   }
   return (await response.json()) as T;
 }
+
+/**
+ * Same auth-header injection + 401-refresh-retry as `apiFetch`, but returns
+ * the raw body as a `Blob` instead of parsing JSON — for the handful of
+ * endpoints that serve a file rather than a resource (currently
+ * `GET /report-cards/{id}.pdf`, a FastAPI `FileResponse`).
+ *
+ * A plain `<a href>` can't be used for these: the access token lives only
+ * in memory and is sent as an `Authorization` header (never a cookie, doc
+ * 14), so a browser-initiated navigation would arrive unauthenticated.
+ * Errors still come back as the standard `{"error": {...}}` envelope and
+ * are unwrapped into `ApiError` exactly as in `apiFetch`, so callers can
+ * branch on `err.code` the same way.
+ */
+export async function apiFetchBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const response = await rawFetch(path, options);
+
+  if (response.status === 401 && !options.isRetry) {
+    const refreshed = await attemptRefresh();
+    if (refreshed) {
+      return apiFetchBlob(path, { ...options, isRetry: true });
+    }
+    authStore.clear();
+    if (typeof window !== "undefined") {
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see the same redirect in apiFetch
+      window.location.href = "/login";
+    }
+  }
+
+  if (!response.ok) {
+    const err = await parseErrorBody(response);
+    throw new ApiError(err.code, err.message, response.status, err.fieldErrors);
+  }
+
+  return await response.blob();
+}
+
+/**
+ * Fetches a file endpoint and hands it to the browser as a download.
+ * Uses an object URL rather than a direct link for the auth reason
+ * described on `apiFetchBlob`, and always revokes it afterwards.
+ */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const blob = await apiFetchBlob(path);
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}

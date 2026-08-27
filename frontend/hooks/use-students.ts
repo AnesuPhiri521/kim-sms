@@ -52,7 +52,9 @@ export function useStudentDocuments(studentId: string | undefined) {
 export function useSectionRoster(sectionId: string | undefined) {
   return useQuery({
     queryKey: sectionRosterKey(sectionId ?? ""),
-    queryFn: () => api.getSectionRoster(sectionId as string, { pageSize: 200 }),
+    // 100 is the backend's `common_list_params` ceiling (`page_size` is
+    // `Query(25, ge=1, le=100)`) — anything larger is rejected with a 422.
+    queryFn: () => api.getSectionRoster(sectionId as string, { pageSize: 100 }),
     enabled: Boolean(sectionId),
   });
 }
