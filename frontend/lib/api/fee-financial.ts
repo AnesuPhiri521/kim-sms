@@ -223,6 +223,28 @@ export async function createDiscount(payload: DiscountCreate): Promise<Discount>
   return discountSchema.parse(data);
 }
 
+export type ListStudentDiscountsParams = {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+  student_id?: string;
+};
+
+/** Pending-approval queue (doc 08 UI) — without this, there was no way for
+ * Admin/Principal to discover a pending request except by its id. */
+export async function listStudentDiscounts(
+  params: ListStudentDiscountsParams = {}
+): Promise<Page<StudentDiscount>> {
+  const qs = buildQueryString({
+    page: params.page,
+    page_size: params.pageSize,
+    status: params.status,
+    student_id: params.student_id,
+  });
+  const data = await apiFetch<unknown>(`/student-discounts${qs}`);
+  return pageSchema(studentDiscountSchema).parse(data);
+}
+
 export async function applyDiscountToStudent(discountId: string, studentId: string): Promise<StudentDiscount> {
   const data = await apiFetch<unknown>(`/discounts/${discountId}/apply/${studentId}`, { method: "POST" });
   return studentDiscountSchema.parse(data);

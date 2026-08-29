@@ -176,6 +176,16 @@ export function useCreateDiscount() {
   });
 }
 
+export const studentDiscountsKey = (params: api.ListStudentDiscountsParams) =>
+  ["fees", "student-discounts", params] as const;
+
+export function useStudentDiscounts(params: api.ListStudentDiscountsParams = {}) {
+  return useQuery({
+    queryKey: studentDiscountsKey(params),
+    queryFn: () => api.listStudentDiscounts({ pageSize: 100, ...params }),
+  });
+}
+
 export function useApplyDiscountToStudent() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -189,7 +199,10 @@ export function useApproveStudentDiscount() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (studentDiscountId: string) => api.approveStudentDiscount(studentDiscountId),
-    onSuccess: () => invalidateStudentFees(queryClient, undefined),
+    onSuccess: () => {
+      invalidateStudentFees(queryClient, undefined);
+      queryClient.invalidateQueries({ queryKey: ["fees", "student-discounts"] });
+    },
   });
 }
 
@@ -198,7 +211,10 @@ export function useRejectStudentDiscount() {
   return useMutation({
     mutationFn: ({ studentDiscountId, reason }: { studentDiscountId: string; reason?: string | null }) =>
       api.rejectStudentDiscount(studentDiscountId, reason),
-    onSuccess: () => invalidateStudentFees(queryClient, undefined),
+    onSuccess: () => {
+      invalidateStudentFees(queryClient, undefined);
+      queryClient.invalidateQueries({ queryKey: ["fees", "student-discounts"] });
+    },
   });
 }
 
