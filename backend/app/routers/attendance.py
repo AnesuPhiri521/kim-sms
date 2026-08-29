@@ -259,6 +259,22 @@ def get_absenteeism_report(
 # --------------------------------------------------------- excuse requests --
 
 
+@router.get("/excuse-requests", response_model=Page[ExcuseRequestRead])
+def list_excuse_requests(
+    status_filter: str | None = Query(None, alias="status"),
+    section_id: str | None = None,
+    params: CommonListParams = Depends(common_list_params),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_any_permission("attendance:edit", "attendance:report")),
+) -> Page[ExcuseRequestRead]:
+    query = service.visible_excuse_requests_query(
+        db, current_user, status=status_filter, section_id=section_id
+    )
+    repo = service.ExcuseRequestRepository(db)
+    rows, total = repo.list(params, query=query)
+    return _page(rows, params, total, ExcuseRequestRead)
+
+
 @router.post(
     "/attendance-records/{record_id}/excuse-requests", response_model=ExcuseRequestRead, status_code=201
 )

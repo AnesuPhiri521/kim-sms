@@ -433,6 +433,28 @@ def test_excuse_request_approval_flips_status_to_excused(
     excuse_id = excuse.json()["id"]
     assert excuse.json()["status"] == "pending"
 
+    # The teacher's inbox finds it (scoped to their own section); a
+    # differently-assigned teacher's inbox does not.
+    inbox = client.get("/api/v1/excuse-requests?status=pending", headers=teacher_headers)
+    assert inbox.status_code == 200, inbox.text
+    assert inbox.json()["meta"]["total"] == 1
+    assert inbox.json()["data"][0]["id"] == excuse_id
+
+    other_teacher = _onboard_teacher(
+        client, admin_headers, employee_no="EMP-OTHER", email="other-teacher@example.com"
+    )
+    _assign(
+        client,
+        admin_headers,
+        staff_id=other_teacher["id"],
+        section_id=setup["section_b"].id,
+        year_id=setup["year"].id,
+        term_id=setup["term"].id,
+    )
+    other_teacher_headers = _activate_and_login(client, seeded_db, other_teacher)
+    other_inbox = client.get("/api/v1/excuse-requests?status=pending", headers=other_teacher_headers)
+    assert other_inbox.json()["meta"]["total"] == 0
+
     approved = client.post(f"/api/v1/excuse-requests/{excuse_id}/approve", headers=teacher_headers)
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "approved"

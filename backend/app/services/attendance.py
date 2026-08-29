@@ -98,6 +98,46 @@ def assert_can_access_section(db: Session, current_user: CurrentUser, section_id
     )
 
 
+def visible_excuse_requests_query(
+    db: Session, current_user: CurrentUser, *, status: str | None, section_id: str | None
+) -> Select:
+    """No `GET /excuse-requests` existed at all before this — `approve`/
+    `reject` were reachable only if the caller already had an excuse
+    request's id from somewhere else, with nothing to build an inbox
+    screen (doc 09 feature 6) around. Same scoping as
+    `assert_can_access_section`: `attendance:report` sees every request,
+    a Teacher holding only `attendance:edit` sees only requests against
+    their own currently-assigned section's sessions.
+    """
+
+    query = (
+        select(ExcuseRequest)
+        .join(AttendanceRecord, ExcuseRequest.attendance_record_id == AttendanceRecord.id)
+        .join(AttendanceSession, AttendanceRecord.session_id == AttendanceSession.id)
+    )
+
+    if status:
+        query = query.where(ExcuseRequest.status == status)
+    if section_id:
+        assert_can_access_section(db, current_user, section_id)
+        query = query.where(AttendanceSession.section_id == section_id)
+    elif not current_user.has_permission("attendance:report"):
+        my_section_ids = (
+            select(StaffAssignment.section_id)
+            .join(Staff, StaffAssignment.staff_id == Staff.id)
+            .join(Term, StaffAssignment.term_id == Term.id)
+            .where(
+                Staff.user_id == current_user.id,
+                StaffAssignment.is_active.is_(True),
+                Staff.is_active.is_(True),
+                Term.is_current.is_(True),
+            )
+        )
+        query = query.where(AttendanceSession.section_id.in_(my_section_ids))
+
+    return query
+
+
 def assert_can_view_student_attendance(db: Session, current_user: CurrentUser, student_id: str) -> Student:
     """`attendance:report` sees any student; `attendance:view_own` sees the
     caller's own record or a linked child's; a Teacher holding `attendance:
