@@ -22,6 +22,7 @@ const navItems: NavItem[] = [
   { label: "Fee Structures", href: "/fees/structures", icon: CircleDollarSign },
   { label: "Outstanding Balances", href: "/fees/invoices", icon: CircleDollarSign },
   { label: "Discounts", href: "/fees/discounts", icon: CircleDollarSign },
+  { label: "Fee Reports", href: "/fees/reports", icon: CircleDollarSign },
   { label: "Academic Years", href: "/academics/years", icon: CalendarRange },
   { label: "Classes", href: "/academics/classes", icon: School },
   { label: "Subjects", href: "/academics/subjects", icon: CalendarRange },
