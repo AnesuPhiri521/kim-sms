@@ -74,6 +74,7 @@ import { PaymentHistory } from "@/components/fees/payment-history";
 import { RecordPaymentDialog } from "@/components/fees/record-payment-dialog";
 import { TermFeeHistory } from "@/components/fees/term-fee-history";
 import { FeeLedgerTable } from "@/components/fees/fee-ledger-table";
+import { StudentAttendanceView } from "@/components/attendance/student-attendance-view";
 import { useStudentFeeBalance } from "@/hooks/use-fees";
 import { useCurrencyCode } from "@/hooks/use-currency";
 
@@ -1306,6 +1307,7 @@ export default function StudentProfilePage() {
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="history">Academic History</TabsTrigger>
           <TabsTrigger value="fees">Fees</TabsTrigger>
+          <TabsTrigger value="attendance">Attendance</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4">
           <OverviewTab studentId={studentId} student={student} sectionLabel={sectionLabel} />
@@ -1321,6 +1323,9 @@ export default function StudentProfilePage() {
         </TabsContent>
         <TabsContent value="fees" className="mt-4">
           <FeesTab studentId={studentId} />
+        </TabsContent>
+        <TabsContent value="attendance" className="mt-4">
+          <StudentAttendanceView studentId={studentId} allowTermFilter />
         </TabsContent>
       </Tabs>
 

@@ -8,7 +8,9 @@ import { ErrorState } from "@/components/shared/error-state";
 import { FeeBalanceCard } from "@/components/fees/fee-balance-card";
 import { TermFeeHistory } from "@/components/fees/term-fee-history";
 import { PaymentHistory } from "@/components/fees/payment-history";
+import { StudentAttendanceView } from "@/components/attendance/student-attendance-view";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMyStudents } from "@/hooks/use-my-students";
 import { useStudentFeeBalance } from "@/hooks/use-fees";
 import { useCurrencyCode } from "@/hooks/use-currency";
@@ -85,18 +87,27 @@ export default function ParentDashboardPage() {
       />
 
       {selectedId ? (
-        <div className="space-y-6">
-          <FeeBalanceCard
-            balance={balanceQuery.data}
-            isLoading={balanceQuery.isLoading}
-            isError={balanceQuery.isError}
-            error={balanceQuery.error}
-            onRetry={() => balanceQuery.refetch()}
-            spacious
-          />
-          <TermFeeHistory studentId={selectedId} currencyCode={currencyCode} />
-          <PaymentHistory studentId={selectedId} currencyCode={currencyCode} readOnly />
-        </div>
+        <Tabs defaultValue="fees">
+          <TabsList>
+            <TabsTrigger value="fees">Fees</TabsTrigger>
+            <TabsTrigger value="attendance">Attendance</TabsTrigger>
+          </TabsList>
+          <TabsContent value="fees" className="mt-4 space-y-6">
+            <FeeBalanceCard
+              balance={balanceQuery.data}
+              isLoading={balanceQuery.isLoading}
+              isError={balanceQuery.isError}
+              error={balanceQuery.error}
+              onRetry={() => balanceQuery.refetch()}
+              spacious
+            />
+            <TermFeeHistory studentId={selectedId} currencyCode={currencyCode} />
+            <PaymentHistory studentId={selectedId} currencyCode={currencyCode} readOnly />
+          </TabsContent>
+          <TabsContent value="attendance" className="mt-4">
+            <StudentAttendanceView studentId={selectedId} allowTermFilter />
+          </TabsContent>
+        </Tabs>
       ) : null}
     </div>
   );
