@@ -183,7 +183,7 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 
 ### Frontend
 - [x] Take-attendance screen (roster + toggle chips, bulk save, lock-state indicator) — `components/attendance/take-attendance-panel.tsx`, wired into a real route at `app/(teacher)/teacher/attendance/page.tsx`, linked from the teacher dashboard. Client-side lock hint (from `attendance_edit_lock_hours`) plus the server's authoritative per-row lock rejection promoting the panel into locked state; Admin override path present, gated by a client-side permission mirror (not a real authorization boundary — the backend still enforces it)
-- [x] Attendance calendar view (Student/Parent) — `components/attendance/attendance-calendar.tsx` and `student-attendance-view.tsx` built, **not yet wired into a route**
+- [x] Attendance calendar view (Student/Parent) — `StudentAttendanceView` (summary + calendar + recent records) wired into the Student dashboard, the Parent dashboard (as a tab, scoped to whichever child is selected), and the admin student profile (as a new "Attendance" tab) — the same component in all three, so nobody sees a differently-computed number
 - [ ] Section attendance report (table + trend chart) — not built
 - [ ] Absenteeism watchlist screen with drill-down — not built
 - [ ] Excuse-request inbox (Teacher approve/reject) — not built; note the backend has no `GET /excuse-requests` list endpoint either (only submit/approve/reject), a real gap this screen will need closed first
