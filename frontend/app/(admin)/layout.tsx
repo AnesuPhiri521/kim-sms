@@ -11,6 +11,8 @@ import {
   UserCog,
   ClipboardList,
   CircleDollarSign,
+  ClipboardCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { BACK_OFFICE_ROLES } from "@/lib/roles";
 
@@ -23,6 +25,8 @@ const navItems: NavItem[] = [
   { label: "Outstanding Balances", href: "/fees/invoices", icon: CircleDollarSign },
   { label: "Discounts", href: "/fees/discounts", icon: CircleDollarSign },
   { label: "Fee Reports", href: "/fees/reports", icon: CircleDollarSign },
+  { label: "Attendance Report", href: "/attendance/reports/section", icon: ClipboardCheck },
+  { label: "Absenteeism Watchlist", href: "/attendance/watchlist", icon: AlertTriangle },
   { label: "Academic Years", href: "/academics/years", icon: CalendarRange },
   { label: "Classes", href: "/academics/classes", icon: School },
   { label: "Subjects", href: "/academics/subjects", icon: CalendarRange },
