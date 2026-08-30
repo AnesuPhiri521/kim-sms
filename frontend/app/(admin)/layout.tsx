@@ -13,6 +13,8 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   AlertTriangle,
+  GraduationCap,
+  FileText,
 } from "lucide-react";
 import { BACK_OFFICE_ROLES } from "@/lib/roles";
 
@@ -27,6 +29,8 @@ const navItems: NavItem[] = [
   { label: "Fee Reports", href: "/fees/reports", icon: CircleDollarSign },
   { label: "Attendance Report", href: "/attendance/reports/section", icon: ClipboardCheck },
   { label: "Absenteeism Watchlist", href: "/attendance/watchlist", icon: AlertTriangle },
+  { label: "Exams", href: "/exams", icon: GraduationCap },
+  { label: "Report Cards", href: "/report-cards", icon: FileText },
   { label: "Academic Years", href: "/academics/years", icon: CalendarRange },
   { label: "Classes", href: "/academics/classes", icon: School },
   { label: "Subjects", href: "/academics/subjects", icon: CalendarRange },

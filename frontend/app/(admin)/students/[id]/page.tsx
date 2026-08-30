@@ -76,6 +76,7 @@ import { TermFeeHistory } from "@/components/fees/term-fee-history";
 import { FeeLedgerTable } from "@/components/fees/fee-ledger-table";
 import { StudentAttendanceView } from "@/components/attendance/student-attendance-view";
 import { StudentPerformanceView } from "@/components/academic-performance/student-performance-view";
+import { StudentReportCardsView } from "@/components/examinations/student-report-cards-view";
 import { useStudentFeeBalance } from "@/hooks/use-fees";
 import { useCurrencyCode } from "@/hooks/use-currency";
 
@@ -1243,6 +1244,17 @@ export default function StudentProfilePage() {
     return map;
   }, [years]);
 
+  // Report cards are keyed by term id; staff can resolve those to names
+  // (a student/parent login can't, which is why the shared examinations
+  // view takes the resolver as an optional prop).
+  const termLabel = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const y of years ?? []) {
+      for (const t of y.terms) map.set(t.id, `${t.name} · ${y.name}`);
+    }
+    return map;
+  }, [years]);
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -1308,6 +1320,7 @@ export default function StudentProfilePage() {
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="history">Academic History</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="examinations">Examinations</TabsTrigger>
           <TabsTrigger value="fees">Fees</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
         </TabsList>
@@ -1329,6 +1342,16 @@ export default function StudentProfilePage() {
               promotion timeline (student_academic_history) — different
               data, no overlap to duplicate. */}
           <StudentPerformanceView studentId={studentId} />
+        </TabsContent>
+        <TabsContent value="examinations" className="mt-4">
+          {/* Doc 12: formal exam results and term report cards, including
+              the PDF. Staff see every status here, not just published
+              ones — the publish gate only filters student/parent reads. */}
+          <StudentReportCardsView
+            studentId={studentId}
+            studentName={fullName}
+            termLabel={(termId) => termLabel.get(termId) ?? termId}
+          />
         </TabsContent>
         <TabsContent value="fees" className="mt-4">
           <FeesTab studentId={studentId} />

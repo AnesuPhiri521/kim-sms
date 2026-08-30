@@ -37,3 +37,19 @@ export function notificationsPathForRoles(roleCodes: string[]): string {
   if (roleCodes.includes("student")) return "/student/notifications";
   return "/notifications";
 }
+
+/**
+ * Same route-group constraint as `notificationsPathForRoles`: doc 12's
+ * "Student/Parent report card view" is one shared component
+ * (`components/examinations/student-report-cards-view.tsx`) rendered from a
+ * thin page per group, so the URL differs by audience even though the
+ * screen doesn't. Back-office roles get the review/publish queue instead —
+ * a different screen serving the same records, not the self-service view.
+ */
+export function reportCardsPathForRoles(roleCodes: string[]): string {
+  if (isBackOfficeRole(roleCodes)) return "/report-cards";
+  if (roleCodes.includes("teacher")) return "/teacher/report-cards";
+  if (roleCodes.includes("parent")) return "/parent/report-cards";
+  if (roleCodes.includes("student")) return "/student/report-cards";
+  return "/report-cards";
+}

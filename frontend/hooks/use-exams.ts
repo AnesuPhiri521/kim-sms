@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "@/lib/api/examinations";
 import type { ListExamsParams } from "@/lib/api/examinations";
 import type {
@@ -133,5 +133,38 @@ export function useStudentExamResults(studentId: string | undefined) {
     queryKey: studentExamResultsKey(studentId ?? ""),
     queryFn: () => api.getStudentExamResults(studentId as string),
     enabled: Boolean(studentId),
+  });
+}
+
+/**
+ * Mark coverage for a whole roster, fanned out one request per student —
+ * the same `useQueries` + `combine` shape as `useSectionMarksOnDate` in
+ * hooks/use-attendance.ts.
+ *
+ * This fan-out exists because the backend exposes **no** "results for one
+ * exam schedule" read endpoint (doc 12's API surface has
+ * `POST /exam-schedules/{id}/results:bulk` for writes and
+ * `GET /students/{id}/exam-results` for reads, nothing in between). One
+ * call per student returns every result that student has across every
+ * schedule, so a single pass over a section's roster yields the full
+ * student × schedule matrix an Admin needs before publishing.
+ *
+ * Deliberately `enabled`-gated: a roster can be 100 students, so callers
+ * only switch it on when the reviewer explicitly asks for the readiness
+ * check rather than on page load.
+ */
+export function useRosterExamResults(studentIds: string[], enabled: boolean) {
+  return useQueries({
+    queries: studentIds.map((studentId) => ({
+      queryKey: studentExamResultsKey(studentId),
+      queryFn: () => api.getStudentExamResults(studentId),
+      enabled,
+    })),
+    combine: (results) => ({
+      isLoading: enabled && results.some((r) => r.isLoading),
+      isError: results.some((r) => r.isError),
+      error: results.find((r) => r.isError)?.error,
+      byStudent: new Map(studentIds.map((id, i) => [id, results[i]?.data ?? []])),
+    }),
   });
 }

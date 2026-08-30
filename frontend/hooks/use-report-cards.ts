@@ -7,11 +7,16 @@ export const reportCardsKey = (params: ListReportCardsParams) => ["report-cards"
 export const reportCardKey = (id: string) => ["report-cards", id] as const;
 export const studentReportCardsKey = (studentId: string) => ["students", studentId, "report-cards"] as const;
 
-export function useReportCards(params: ListReportCardsParams = {}) {
+/** `enabled` mirrors `useAssessments` — the review queue is scoped to one
+ * (section, term) cohort, and an unfiltered `GET /report-cards` before the
+ * reviewer has picked one would fetch every report card in the school for
+ * a result the screen throws away. */
+export function useReportCards(params: ListReportCardsParams = {}, enabled = true) {
   return useQuery({
     queryKey: reportCardsKey(params),
     queryFn: () => api.listReportCards(params),
     placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
