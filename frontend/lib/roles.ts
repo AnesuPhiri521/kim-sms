@@ -10,6 +10,17 @@ export type RoleCode = "admin" | "principal" | "registrar" | "accountant" | "tea
 // inline error state.
 export const BACK_OFFICE_ROLES: RoleCode[] = ["admin", "principal", "registrar", "accountant"];
 
+/** Human labels for a role-targeted announcement/event audience picker. */
+export const ROLE_LABELS: Record<RoleCode, string> = {
+  admin: "Admins",
+  principal: "Principal",
+  registrar: "Registrars",
+  accountant: "Accountants",
+  teacher: "Teachers",
+  student: "Students",
+  parent: "Parents",
+};
+
 export function isBackOfficeRole(roleCodes: string[]): boolean {
   return roleCodes.some((code) => BACK_OFFICE_ROLES.includes(code as RoleCode));
 }
@@ -52,4 +63,14 @@ export function reportCardsPathForRoles(roleCodes: string[]): string {
   if (roleCodes.includes("parent")) return "/parent/report-cards";
   if (roleCodes.includes("student")) return "/student/report-cards";
   return "/report-cards";
+}
+
+/** Same route-group constraint again — doc 10 UI screen 6, one shared
+ * `NotificationPreferencesForm` rendered from a thin page per group. */
+export function notificationPreferencesPathForRoles(roleCodes: string[]): string {
+  if (isBackOfficeRole(roleCodes)) return "/settings/notifications";
+  if (roleCodes.includes("teacher")) return "/teacher/settings/notifications";
+  if (roleCodes.includes("parent")) return "/parent/settings/notifications";
+  if (roleCodes.includes("student")) return "/student/settings/notifications";
+  return "/settings/notifications";
 }

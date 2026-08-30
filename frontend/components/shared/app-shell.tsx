@@ -3,10 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GraduationCap, LogOut, Menu, User as UserIcon } from "lucide-react";
+import { ChevronDown, GraduationCap, LogOut, Menu, User as UserIcon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,11 +21,23 @@ import { NotificationBell } from "@/components/shared/notification-bell";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 
-export type NavItem = {
+export type NavLink = {
   label: string;
   href: string;
   icon: LucideIcon;
 };
+
+export type NavGroup = {
+  label: string;
+  icon: LucideIcon;
+  items: NavLink[];
+};
+
+export type NavItem = NavLink | NavGroup;
+
+function isNavGroup(item: NavItem): item is NavGroup {
+  return "items" in item;
+}
 
 type AppShellProps = {
   navItems: NavItem[];
@@ -35,30 +48,101 @@ function initialsFor(email: string): string {
   return email.slice(0, 2).toUpperCase();
 }
 
+function isLinkActive(pathname: string | null, href: string): boolean {
+  return pathname === href || (pathname?.startsWith(`${href}/`) ?? false);
+}
+
+function NavLinkItem({
+  item,
+  active,
+  onNavigate,
+  indent,
+}: {
+  item: NavLink;
+  active: boolean;
+  onNavigate?: () => void;
+  indent?: boolean;
+}) {
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+        indent && "pl-9",
+        active
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      )}
+    >
+      <Icon className="size-4" />
+      {item.label}
+    </Link>
+  );
+}
+
+function NavGroupItem({
+  group,
+  pathname,
+  onNavigate,
+}: {
+  group: NavGroup;
+  pathname: string | null;
+  onNavigate?: () => void;
+}) {
+  const hasActiveChild = group.items.some((item) => isLinkActive(pathname, item.href));
+  const [open, setOpen] = useState(hasActiveChild);
+  const Icon = group.icon;
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            hasActiveChild && !open
+              ? "text-foreground"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <Icon className="size-4" />
+          <span className="flex-1 text-left">{group.label}</span>
+          <ChevronDown className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="flex flex-col gap-1 pt-1">
+        {group.items.map((item) => (
+          <NavLinkItem
+            key={item.href}
+            item={item}
+            active={isLinkActive(pathname, item.href)}
+            onNavigate={onNavigate}
+            indent
+          />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function SidebarNav({ navItems, onNavigate }: { navItems: NavItem[]; onNavigate?: () => void }) {
   const pathname = usePathname();
   return (
     <nav className="flex flex-col gap-1 p-3">
-      {navItems.map((item) => {
-        const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
-        const Icon = item.icon;
-        return (
-          <Link
+      {navItems.map((item) =>
+        isNavGroup(item) ? (
+          <NavGroupItem key={item.label} group={item} pathname={pathname} onNavigate={onNavigate} />
+        ) : (
+          <NavLinkItem
             key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
-          >
-            <Icon className="size-4" />
-            {item.label}
-          </Link>
-        );
-      })}
+            item={item}
+            active={isLinkActive(pathname, item.href)}
+            onNavigate={onNavigate}
+          />
+        )
+      )}
     </nav>
   );
 }

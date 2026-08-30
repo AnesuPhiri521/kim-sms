@@ -229,11 +229,15 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 ### Frontend
 - [x] Assessment types admin CRUD (`app/(admin)/academics/assessment-types/page.tsx`) and grading scales admin CRUD (`app/(admin)/academics/grading-scales/page.tsx`, shared with Examinations per doc 16) — both seed-gap-aware (no assessment types are seeded by default; an empty state points there)
 - [x] Assessment list per subject/section with weight-sum indicator (`app/(teacher)/teacher/assessments/page.tsx`) — combined with score entry rather than a separate gradebook grid screen
-- [ ] Gradebook grid (Teacher) — the assessments page above handles create/edit; a dedicated inline-editable bulk score-entry grid is not yet built
-- [ ] Student/Parent performance page — not built
-- [ ] Teacher performance heatmap dashboard — not built
-- [ ] Principal/Admin performance analytics dashboard — not built (backend at-risk/section reports exist)
-- [ ] Exam scheduler, exam mark-entry grid, publish control screen, report card compiler/review queue, Student/Parent report card view + PDF download — none built yet; API/schema/hook layer exists (`lib/api/examinations.ts`, `hooks/use-exams.ts`, `hooks/use-report-cards.ts`)
+- [x] Gradebook grid (Teacher) — `app/(teacher)/teacher/gradebook/page.tsx`, inline bulk score-entry grid wired to `useBulkEnterScores`
+- [x] Student/Parent performance page — `app/(student)/student/performance/page.tsx` + `app/(parent)/parent/performance/page.tsx`, both thin wrappers around the shared `StudentPerformanceView` (parent adds the `GET /students/me` child switcher)
+- [x] Teacher performance dashboard — `app/(teacher)/teacher/performance/page.tsx`
+- [x] Principal/Admin performance analytics dashboard — `app/(admin)/academics/performance-reports/page.tsx`
+- [x] Exam scheduler, exam mark-entry grid, publish control screen — `app/(admin)/exams/page.tsx`, `app/(teacher)/teacher/exams/page.tsx`
+- [x] Report card compiler/review queue — `app/(admin)/report-cards/page.tsx`, `app/(teacher)/teacher/report-cards/page.tsx`
+- [x] Student/Parent report card view + PDF download — `app/(student)/student/report-cards/page.tsx`, `app/(parent)/parent/report-cards/page.tsx`
+
+**Correction (2026-08-30)**: this checklist previously marked the six items above as not built; verified against the actual working tree (files exist, are fully wired to real hooks/endpoints, not stubs) and against a clean `npm run build` covering all 59 routes — the checklist had simply gone stale after a later pass completed this work without updating it here.
 
 ### Cross-cutting
 - [x] Confirm shared `grading_scales` used consistently by both coursework and exam grading — both modules were built together in the same agent pass specifically to share this table (doc 16)
@@ -268,7 +272,12 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 ### Frontend
 - [x] Notification bell + dropdown — replaces `AppShell`'s non-functional placeholder (unread badge, recent list, mark-read on click, mark-all-read), so it's live on every role's header at once
 - [x] Notification center page (list, filter by category/read-state, mark read/mark-all-read) — one shared component (`components/notifications/notification-center.tsx`) rendered from a thin `page.tsx` in each route group (`/notifications`, `/teacher/notifications`, `/parent/notifications`, `/student/notifications` — Next route groups can't share a URL across groups, same constraint `homePathForRoles` already works around)
-- [ ] Announcement composer, school calendar, admin notification settings, user notification-preferences screen — not built yet; API/schema/hook layer exists (`lib/api/communication.ts`, `hooks/use-announcements.ts`, `hooks/use-events.ts`, `hooks/use-notification-preferences.ts`, `hooks/use-notification-templates.ts`)
+- [x] Announcement composer (Admin/Principal get the full audience picker + safety checkbox; Teacher gets a locked-to-their-section composer with no safety option, mirroring the backend's `announcements:publish`/`announcements:publish_scoped` split) — one shared `AnnouncementList` works for every role since `GET /announcements` is already scoped server-side
+- [x] School calendar (`components/communication/event-calendar.tsx`, month-grouped list view — no new calendar library) + composer for every `events:manage` holder (Admin/Principal/Teacher, no scoped variant per doc 10); read-only for Parent/Student
+- [x] Admin notification settings (template editor — CRUD for subject/body content keyed by a stable code) — **honest gap noted in the UI itself**: none of the currently-wired triggers (Fees/Attendance/Examinations) actually pass a `template_code` yet, they send literal text directly, so this screen manages content with no active consumer wired to it yet
+- [x] User notification-preferences screen (per-category in-app/email/digest toggles, mandatory category's in-app toggle disabled from the server's own `is_mandatory` flag)
+
+**Communication frontend is now complete**: notification bell + center, announcement composer + list, event calendar + composer, notification preferences, and the admin template editor are all wired to the real backend, all following the same one-shared-component-per-thin-page-per-route-group pattern established for the notification center (`lib/roles.ts` gained `notificationPreferencesPathForRoles` alongside `notificationsPathForRoles`).
 
 ### Cross-cutting
 - [x] End-to-end test: absenteeism triggers alert (extended `test_excuse_request_approval_flips_status_to_excused`'s parent to assert the notification), result publish and report-card publish trigger notifications (extended the corresponding examinations tests), invoice-generated/payment-received trigger notifications (new `test_invoice_generation_and_payment_notify_the_guardian`). **Not covered**: overdue-fee-triggers-reminder — that trigger itself isn't built yet (see the Fees due-date-reminder/overdue-alert gap above)

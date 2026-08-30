@@ -1,0 +1,271 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * One-command dev launcher for EduManage.
+ *
+ * Installs missing dependencies (uv for the backend, npm packages for the
+ * frontend), makes sure both apps have a local env file, applies pending DB
+ * migrations, seeds baseline data, then runs the backend (uvicorn) and
+ * frontend (next dev) together. Works on Windows, macOS, and Linux — the
+ * only prerequisite is Node.js itself (needed to run this script and the
+ * frontend anyway).
+ *
+ * Usage: node scripts/dev.js
+ */
+
+const { spawn, spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const net = require("node:net");
+const os = require("node:os");
+const path = require("node:path");
+
+const ROOT = path.resolve(__dirname, "..");
+const BACKEND_DIR = path.join(ROOT, "backend");
+const FRONTEND_DIR = path.join(ROOT, "frontend");
+const IS_WIN = process.platform === "win32";
+
+const BACKEND_PORT = process.env.BACKEND_PORT || "8000";
+const FRONTEND_PORT = process.env.FRONTEND_PORT || "3000";
+
+const COLOR = {
+  reset: "\x1b[0m",
+  dim: "\x1b[2m",
+  cyan: "\x1b[36m",
+  magenta: "\x1b[35m",
+  yellow: "\x1b[33m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+};
+
+function log(tag, color, msg) {
+  const prefix = `${color}[${tag}]${COLOR.reset}`;
+  for (const line of String(msg).split("\n")) {
+    if (line.length === 0) continue;
+    process.stdout.write(`${prefix} ${line}\n`);
+  }
+}
+
+const logDev = (msg) => log("dev", COLOR.yellow, msg);
+const logOk = (msg) => log("dev", COLOR.green, msg);
+const logErr = (msg) => log("dev", COLOR.red, msg);
+
+function commandExists(cmd) {
+  const finder = IS_WIN ? "where" : "which";
+  const res = spawnSync(finder, [cmd], { stdio: "ignore" });
+  return res.status === 0;
+}
+
+// Runs a setup step to completion, streaming its output. Throws on non-zero
+// exit unless allowFail is set, in which case it returns false instead.
+function runStep(label, command, args, opts = {}) {
+  logDev(`${label} ${COLOR.dim}(${command} ${args.join(" ")})${COLOR.reset}`);
+  const res = spawnSync(command, args, {
+    cwd: opts.cwd || ROOT,
+    stdio: "inherit",
+    env: opts.env || process.env,
+  });
+  if (res.error || res.status !== 0) {
+    if (opts.allowFail) {
+      logErr(`${label} failed — continuing anyway (${res.error ? res.error.message : `exit ${res.status}`})`);
+      return false;
+    }
+    throw new Error(`${label} failed: ${res.error ? res.error.message : `exit code ${res.status}`}`);
+  }
+  return true;
+}
+
+function copyEnvIfMissing(exampleFile, targetFile) {
+  if (fs.existsSync(targetFile)) return;
+  if (!fs.existsSync(exampleFile)) return;
+  fs.copyFileSync(exampleFile, targetFile);
+  logDev(`Created ${path.relative(ROOT, targetFile)} from ${path.basename(exampleFile)}`);
+}
+
+// --- uv (Python package manager) -------------------------------------------
+
+function findUv() {
+  if (commandExists("uv")) return "uv";
+  const candidates = IS_WIN
+    ? [path.join(os.homedir(), ".local", "bin", "uv.exe")]
+    : [path.join(os.homedir(), ".local", "bin", "uv"), path.join(os.homedir(), ".cargo", "bin", "uv")];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function installUv() {
+  logDev("uv (Python package manager) not found — installing it...");
+  if (IS_WIN) {
+    runStep(
+      "Install uv",
+      "powershell",
+      ["-ExecutionPolicy", "ByPass", "-Command", "irm https://astral.sh/uv/install.ps1 | iex"],
+      { allowFail: true }
+    );
+  } else {
+    runStep("Install uv", "sh", ["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"], { allowFail: true });
+  }
+  const uv = findUv();
+  if (!uv) {
+    throw new Error(
+      "Could not install uv automatically. Install it manually from https://docs.astral.sh/uv/ " +
+        "and re-run this script."
+    );
+  }
+  return uv;
+}
+
+// --- setup -------------------------------------------------------------
+
+function setupBackend(uvBin) {
+  logDev("Setting up backend...");
+  copyEnvIfMissing(path.join(BACKEND_DIR, ".env.example"), path.join(BACKEND_DIR, ".env"));
+
+  // `uv sync` creates/updates the venv and downloads Python 3.12 itself if needed.
+  runStep("Install backend dependencies", uvBin, ["sync"], { cwd: BACKEND_DIR });
+
+  runStep("Apply database migrations", uvBin, ["run", "alembic", "upgrade", "head"], {
+    cwd: BACKEND_DIR,
+    allowFail: true,
+  });
+
+  runStep("Seed baseline data", uvBin, ["run", "python", "-m", "app.db.seed"], {
+    cwd: BACKEND_DIR,
+    allowFail: true,
+  });
+}
+
+function frontendNeedsInstall() {
+  const nodeModules = path.join(FRONTEND_DIR, "node_modules");
+  if (!fs.existsSync(nodeModules)) return true;
+  const lockFile = path.join(FRONTEND_DIR, "package-lock.json");
+  if (!fs.existsSync(lockFile)) return false;
+  return fs.statSync(lockFile).mtimeMs > fs.statSync(nodeModules).mtimeMs;
+}
+
+function setupFrontend() {
+  logDev("Setting up frontend...");
+  copyEnvIfMissing(path.join(FRONTEND_DIR, ".env.local.example"), path.join(FRONTEND_DIR, ".env.local"));
+
+  if (frontendNeedsInstall()) {
+    const npmCmd = IS_WIN ? "npm.cmd" : "npm";
+    runStep("Install frontend dependencies", npmCmd, ["install"], { cwd: FRONTEND_DIR });
+  } else {
+    logDev("Frontend dependencies already up to date, skipping npm install.");
+  }
+}
+
+// --- port check (best-effort, informational only) --------------------------
+
+// Tries to connect as a client rather than bind as a server: binding can
+// falsely report "free" when the existing listener is on a different
+// address family (e.g. IPv6-only) that still answers on the same port.
+function checkPortFree(port) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ port: Number(port), host: "127.0.0.1" });
+    const settle = (free) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(free);
+    };
+    socket.setTimeout(300);
+    socket.once("connect", () => settle(false));
+    socket.once("timeout", () => settle(true));
+    socket.once("error", () => settle(true));
+  });
+}
+
+// --- process orchestration --------------------------------------------------
+
+const children = [];
+let shuttingDown = false;
+
+function spawnServer(name, color, command, args, cwd) {
+  const child = spawn(command, args, {
+    cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: !IS_WIN,
+    env: process.env,
+  });
+  child.stdout.on("data", (d) => log(name, color, d.toString()));
+  child.stderr.on("data", (d) => log(name, color, d.toString()));
+  child.on("exit", (code, signal) => {
+    if (shuttingDown) return;
+    logErr(`${name} exited unexpectedly (${signal || `code ${code}`}) — shutting down.`);
+    shutdown(code || 1);
+  });
+  children.push(child);
+  return child;
+}
+
+function killTree(child) {
+  if (!child || child.killed || child.exitCode !== null) return;
+  if (IS_WIN) {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+}
+
+function shutdown(code) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logDev("Shutting down dev servers...");
+  for (const child of children) killTree(child);
+  setTimeout(() => process.exit(code || 0), 300);
+}
+
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));
+
+// --- main --------------------------------------------------------------
+
+async function main() {
+  logDev(`EduManage dev launcher — platform: ${process.platform}`);
+
+  if (!commandExists("npm")) {
+    throw new Error("npm was not found on PATH. Install Node.js (which bundles npm) and re-run this script.");
+  }
+
+  const uvBin = findUv() || installUv();
+
+  setupBackend(uvBin);
+  setupFrontend();
+
+  for (const [name, port] of [["backend", BACKEND_PORT], ["frontend", FRONTEND_PORT]]) {
+    if (!(await checkPortFree(port))) {
+      logErr(`Port ${port} (${name}) already appears to be in use — the dev server may fail to start.`);
+    }
+  }
+
+  logOk("Starting backend and frontend...");
+
+  spawnServer(
+    "backend",
+    COLOR.cyan,
+    uvBin,
+    ["run", "uvicorn", "app.main:app", "--reload", "--host", "127.0.0.1", "--port", BACKEND_PORT],
+    BACKEND_DIR
+  );
+
+  spawnServer("frontend", COLOR.magenta, IS_WIN ? "npm.cmd" : "npm", ["run", "dev"], FRONTEND_DIR);
+
+  logDev(`Backend:  http://127.0.0.1:${BACKEND_PORT}/api/v1/health`);
+  logDev(`Frontend: http://127.0.0.1:${FRONTEND_PORT}`);
+  logDev("Press Ctrl+C to stop both servers.");
+}
+
+main().catch((err) => {
+  logErr(err.message || String(err));
+  process.exit(1);
+});

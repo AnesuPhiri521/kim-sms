@@ -237,6 +237,12 @@ export default function TeacherDashboardPage() {
             <Button asChild variant="outline">
               <Link href="/teacher/report-cards">Report Cards</Link>
             </Button>
+            <Button asChild variant="outline">
+              <Link href="/teacher/announcements">Announcements</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/teacher/calendar">Calendar</Link>
+            </Button>
           </div>
         }
       />

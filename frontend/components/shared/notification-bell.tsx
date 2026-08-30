@@ -13,7 +13,7 @@ import {
   useUnreadNotifications,
 } from "@/hooks/use-notifications";
 import { useAuth } from "@/lib/auth/auth-context";
-import { notificationsPathForRoles } from "@/lib/roles";
+import { notificationPreferencesPathForRoles, notificationsPathForRoles } from "@/lib/roles";
 import type { Notification } from "@/lib/schemas/communication";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,7 @@ export function NotificationBell() {
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
   const notificationsPath = notificationsPathForRoles(user?.role_codes ?? []);
+  const preferencesPath = notificationPreferencesPathForRoles(user?.role_codes ?? []);
 
   const unreadCount = data?.meta.total ?? 0;
   const rows = data?.data ?? [];
@@ -91,9 +92,12 @@ export function NotificationBell() {
           )}
         </div>
         <Separator />
-        <div className="p-2">
-          <Button asChild variant="ghost" size="sm" className="w-full">
+        <div className="flex gap-2 p-2">
+          <Button asChild variant="ghost" size="sm" className="flex-1">
             <Link href={notificationsPath}>View all</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm" className="flex-1">
+            <Link href={preferencesPath}>Preferences</Link>
           </Button>
         </div>
       </PopoverContent>

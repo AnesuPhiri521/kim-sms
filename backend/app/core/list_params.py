@@ -20,7 +20,7 @@ class CommonListParams:
 
 def common_list_params(
     page: int = Query(1, ge=1),
-    page_size: int = Query(25, ge=1, le=100),
+    page_size: int = Query(25, ge=1, le=200),
     sort: str | None = Query(None, description="Column name, prefix '-' for descending"),
 ) -> CommonListParams:
     return CommonListParams(page=page, page_size=page_size, sort=sort)
