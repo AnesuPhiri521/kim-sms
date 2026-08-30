@@ -1,4 +1,4 @@
-import { CalendarRange, School, Settings } from "lucide-react";
+import { CalendarRange, GraduationCap, ListChecks, School, Settings, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,26 @@ const shortcuts = [
     description: "Business-rule defaults by category",
     href: "/settings/system",
     icon: Settings,
+  },
+  // Academic Performance (doc 11) — these three screens have no sidebar
+  // entry, so the dashboard is their only way in.
+  {
+    title: "Performance Reports",
+    description: "At-risk watchlist and class/subject averages",
+    href: "/academics/performance-reports",
+    icon: TrendingUp,
+  },
+  {
+    title: "Assessment Types",
+    description: "Quiz, assignment, project… none are seeded by default",
+    href: "/academics/assessment-types",
+    icon: ListChecks,
+  },
+  {
+    title: "Grading Scales",
+    description: "Letter-grade bands used across coursework and exams",
+    href: "/academics/grading-scales",
+    icon: GraduationCap,
   },
 ];
 

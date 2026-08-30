@@ -602,16 +602,24 @@ export default function TeacherAssessmentsPage() {
           sectionLabel ? `Coursework for ${sectionLabel}.` : "Coursework for the class assigned to you."
         }
         actions={
-          <Button
-            onClick={() => {
-              setEditing(undefined);
-              setDialogOpen(true);
-            }}
-            disabled={noTypes || !effectiveTermId}
-          >
-            <Plus className="size-4" />
-            New Assessment
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/teacher/gradebook">Gradebook</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/teacher/performance">Class performance</Link>
+            </Button>
+            <Button
+              onClick={() => {
+                setEditing(undefined);
+                setDialogOpen(true);
+              }}
+              disabled={noTypes || !effectiveTermId}
+            >
+              <Plus className="size-4" />
+              New Assessment
+            </Button>
+          </>
         }
       />
 

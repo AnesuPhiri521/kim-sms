@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/page-header";
 import { CardSkeleton } from "@/components/shared/card-skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -69,20 +71,25 @@ export default function ParentDashboardPage() {
         title="Parent Dashboard"
         description={selected ? `${selected.first_name} ${selected.last_name}'s account.` : "Your child's overview."}
         actions={
-          students.length > 1 ? (
-            <Select value={selectedId} onValueChange={setPickedId}>
-              <SelectTrigger className="w-56">
-                <SelectValue placeholder="Choose a child" />
-              </SelectTrigger>
-              <SelectContent>
-                {students.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.first_name} {s.last_name} · {s.admission_no}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : undefined
+          <>
+            <Button asChild variant="outline">
+              <Link href="/parent/performance">Performance</Link>
+            </Button>
+            {students.length > 1 ? (
+              <Select value={selectedId} onValueChange={setPickedId}>
+                <SelectTrigger className="w-56">
+                  <SelectValue placeholder="Choose a child" />
+                </SelectTrigger>
+                <SelectContent>
+                  {students.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.first_name} {s.last_name} · {s.admission_no}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+          </>
         }
       />
 

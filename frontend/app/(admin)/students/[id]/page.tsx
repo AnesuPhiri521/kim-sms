@@ -75,6 +75,7 @@ import { RecordPaymentDialog } from "@/components/fees/record-payment-dialog";
 import { TermFeeHistory } from "@/components/fees/term-fee-history";
 import { FeeLedgerTable } from "@/components/fees/fee-ledger-table";
 import { StudentAttendanceView } from "@/components/attendance/student-attendance-view";
+import { StudentPerformanceView } from "@/components/academic-performance/student-performance-view";
 import { useStudentFeeBalance } from "@/hooks/use-fees";
 import { useCurrencyCode } from "@/hooks/use-currency";
 
@@ -1306,6 +1307,7 @@ export default function StudentProfilePage() {
           <TabsTrigger value="guardians">Guardians</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="history">Academic History</TabsTrigger>
+          <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="fees">Fees</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
         </TabsList>
@@ -1320,6 +1322,13 @@ export default function StudentProfilePage() {
         </TabsContent>
         <TabsContent value="history" className="mt-4">
           <HistoryTab studentId={studentId} yearLabel={yearLabel} sectionLabel={sectionLabel} />
+        </TabsContent>
+        <TabsContent value="performance" className="mt-4">
+          {/* Doc 11 coursework performance. Deliberately a separate tab
+              from "Academic History", which is the section-allocation and
+              promotion timeline (student_academic_history) — different
+              data, no overlap to duplicate. */}
+          <StudentPerformanceView studentId={studentId} />
         </TabsContent>
         <TabsContent value="fees" className="mt-4">
           <FeesTab studentId={studentId} />
