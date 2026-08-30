@@ -178,17 +178,9 @@ export async function createExcuseRequest(
 }
 
 /**
- * NOT YET IMPLEMENTED BACKEND-SIDE. `backend/app/routers/attendance.py`
- * exposes only create / approve / reject for excuse requests — there is no
- * list route, and doc 09's API surface doesn't specify one either, so the
- * Teacher inbox has no way to discover pending requests today.
- *
- * This is declared against the path the rest of the module's REST shape
- * implies (`GET /excuse-requests?status=&section_id=`) so the inbox screen
- * is complete and starts working the moment that route ships. Until then
- * the call 404s and the screen renders a specific explanatory state rather
- * than a generic failure — see
- * app/(teacher)/teacher/excuse-requests/page.tsx.
+ * Scoped server-side the same way as everything else in this module: a
+ * Teacher holding only `attendance:edit` sees only requests against their
+ * own currently-assigned section; `attendance:report` sees every request.
  */
 export async function listExcuseRequests(
   params: { status?: string; section_id?: string; page?: number; pageSize?: number } = {}

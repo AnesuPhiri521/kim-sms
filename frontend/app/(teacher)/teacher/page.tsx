@@ -228,6 +228,9 @@ export default function TeacherDashboardPage() {
             <Button asChild variant="outline">
               <Link href="/teacher/assessments">Assessments</Link>
             </Button>
+            <Button asChild variant="outline">
+              <Link href="/teacher/excuse-requests">Excuse Requests</Link>
+            </Button>
           </div>
         }
       />

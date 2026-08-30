@@ -200,9 +200,6 @@ export function useExcuseRequests(params: { status?: string; section_id?: string
     queryKey: excuseRequestsKey(params),
     queryFn: () => api.listExcuseRequests({ ...params, pageSize: 100 }),
     enabled,
-    // The list route doesn't exist yet (see lib/api/attendance.ts) — a 404
-    // is a stable answer, not a transient failure worth retrying.
-    retry: false,
   });
 }
 
