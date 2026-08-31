@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  // Standalone output for the Docker production image (docker/Dockerfile) —
+  // bundles only the traced dependency subset needed to run `node server.js`.
+  output: "standalone",
 };
 
 export default nextConfig;

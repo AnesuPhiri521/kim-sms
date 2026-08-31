@@ -1,0 +1,28 @@
+services:
+  backend:
+    build: ./backend
+    container_name: edumanage-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env.production
+    volumes:
+      - backend_storage:/app/storage
+      - backend_db:/data
+    ports:
+      - "127.0.0.1:8010:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://kim.pixelforgeglobal.com/api/v1}
+    container_name: edumanage-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:3010:3000"
+
+volumes:
+  backend_storage:
+  backend_db:
