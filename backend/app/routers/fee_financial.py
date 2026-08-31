@@ -1,14 +1,13 @@
 """Fee & Financial Management API (doc 08). Routers stay thin — the real
-allocation/credit/discount logic lives in `app.services.fee_financial`.
+allocation/credit logic lives in `app.services.fee_financial`.
 """
 
 from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import CurrentUser, get_current_user, require_permission
@@ -17,24 +16,19 @@ from app.core.list_params import CommonListParams, common_list_params
 from app.db.session import get_db
 from app.models.academics_core import Section
 from app.models.fee_financial import (
-    Discount,
     FeeCategory,
     FeeCredit,
     FeeInvoice,
     FeePayment,
     FeeStructure,
     Receipt,
-    StudentDiscount,
 )
 from app.models.student_information import Student
 from app.schemas.common import Page, PageMeta
 from app.schemas.fee_financial import (
     ApplyCreditRequest,
-    ApproveRejectRequest,
     CashUpReportRow,
-    DiscountCreate,
-    DiscountRead,
-    DiscountUtilizationRow,
+    EmailReceiptResult,
     FeeBalanceRead,
     FeeCategoryCreate,
     FeeCategoryRead,
@@ -52,16 +46,25 @@ from app.schemas.fee_financial import (
     OutstandingBalanceRow,
     RecordPaymentRequest,
     RefundCreditRequest,
-    StudentDiscountRead,
+    ResyncEnrollmentFeesResult,
     TermFeeSummaryRow,
     VoidPaymentRequest,
 )
 from app.services import communication as communication_service
 from app.services import fee_financial as service
 from app.services.audit_service import AuditService
+from app.services.report_export import ExportedFile, ExportFormat
 from app.services.settings_service import SettingsService
 
 router = APIRouter(prefix="/api/v1", tags=["fee-financial"])
+
+
+def _download(exported: ExportedFile) -> Response:
+    return Response(
+        content=exported.content,
+        media_type=exported.media_type,
+        headers={"Content-Disposition": f'attachment; filename="{exported.filename}"'},
+    )
 
 
 def _page[SchemaT: BaseModel](
@@ -288,6 +291,25 @@ def generate_invoices(
     )
 
 
+@router.post(
+    "/students/{student_id}/fee-enrollment/resync", response_model=ResyncEnrollmentFeesResult
+)
+def resync_enrollment_fees(
+    student_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_permission("fees:generate_invoices")),
+) -> ResyncEnrollmentFeesResult:
+    """Correct a student billed for term(s) before they joined: re-stamp the
+    enrolment term to the current term, reverse earlier-term invoices that
+    have taken no money, and (re)create the current term's invoices.
+    """
+
+    student = _get_or_404(db, Student, student_id, "Student")
+    result = service.resync_enrollment_fees(db, student, current_user.id)
+    db.commit()
+    return ResyncEnrollmentFeesResult(**result)
+
+
 # ----------------------------------------------------------------- invoices --
 
 
@@ -395,6 +417,18 @@ def record_payment(
     return payment
 
 
+@router.post("/fee-payments/{payment_id}/receipt/email", response_model=EmailReceiptResult)
+def email_payment_receipt(
+    payment_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_any_permission("fees:record_payment", "fees:report")),
+) -> EmailReceiptResult:
+    payment = _get_or_404(db, FeePayment, payment_id, "Fee payment")
+    sent_to = service.email_receipt(db, payment, current_user.id)
+    db.commit()
+    return EmailReceiptResult(sent_to=sent_to)
+
+
 @router.get("/fee-payments", response_model=Page[FeePaymentRead])
 def list_fee_payments(
     student_id: str | None = None,
@@ -461,128 +495,6 @@ def void_payment(
     db.commit()
     db.refresh(payment)
     return payment
-
-
-# ---------------------------------------------------------------- discounts --
-
-
-@router.get("/discounts", response_model=Page[DiscountRead])
-def list_discounts(
-    params: CommonListParams = Depends(common_list_params),
-    db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(
-        require_any_permission("fees:create_discount", "fees:approve_discount", "fees:report")
-    ),
-) -> Page[DiscountRead]:
-    repo = service.DiscountRepository(db)
-    rows, total = repo.list(params)
-    return _page(rows, params, total, DiscountRead)
-
-
-@router.get("/student-discounts", response_model=Page[StudentDiscountRead])
-def list_student_discounts(
-    status_filter: str | None = Query(None, alias="status"),
-    student_id: str | None = None,
-    params: CommonListParams = Depends(common_list_params),
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(
-        require_any_permission("fees:create_discount", "fees:approve_discount", "fees:report")
-    ),
-) -> Page[StudentDiscountRead]:
-    """Was missing entirely — `approve`/`reject` existed but nothing let
-    Principal/Admin discover which `StudentDiscount` rows are actually
-    pending (doc 08 UI: "pending-approval queue"), only act on one once
-    they already had its id from somewhere else. `fees:create_discount`
-    (Accountant, who requests but cannot approve their own request) is
-    scoped to their own requests only; `fees:approve_discount`/
-    `fees:report` see everyone's.
-    """
-
-    query = select(StudentDiscount)
-    if status_filter:
-        query = query.where(StudentDiscount.status == status_filter)
-    if student_id:
-        query = query.where(StudentDiscount.student_id == student_id)
-    can_see_all = current_user.has_permission("fees:approve_discount") or current_user.has_permission(
-        "fees:report"
-    )
-    if not can_see_all:
-        query = query.where(StudentDiscount.created_by == current_user.id)
-
-    repo = service.StudentDiscountRepository(db)
-    rows, total = repo.list(params, query=query)
-    return _page(rows, params, total, StudentDiscountRead)
-
-
-@router.post("/discounts", response_model=DiscountRead, status_code=201)
-def create_discount(
-    payload: DiscountCreate,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_permission("fees:create_discount")),
-) -> Discount:
-    discount = service.create_discount(
-        db,
-        name=payload.name,
-        type_=payload.type,
-        value=payload.value,
-        applies_to=payload.applies_to,
-        requires_approval=payload.requires_approval,
-        approval_threshold_cents=payload.approval_threshold_cents,
-        fee_category_id=payload.fee_category_id,
-        fee_structure_id=payload.fee_structure_id,
-        actor_user_id=current_user.id,
-    )
-    db.commit()
-    db.refresh(discount)
-    return discount
-
-
-@router.post(
-    "/discounts/{discount_id}/apply/{student_id}", response_model=StudentDiscountRead, status_code=201
-)
-def apply_discount(
-    discount_id: str,
-    student_id: str,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_permission("fees:create_discount")),
-) -> StudentDiscount:
-    discount = _get_or_404(db, Discount, discount_id, "Discount")
-    student = _get_or_404(db, Student, student_id, "Student")
-    student_discount = service.apply_discount_to_student(
-        db, discount=discount, student=student, actor_user_id=current_user.id
-    )
-    db.commit()
-    db.refresh(student_discount)
-    return student_discount
-
-
-@router.post("/student-discounts/{student_discount_id}/approve", response_model=StudentDiscountRead)
-def approve_student_discount(
-    student_discount_id: str,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_permission("fees:approve_discount")),
-) -> StudentDiscount:
-    student_discount = _get_or_404(db, StudentDiscount, student_discount_id, "Discount request")
-    service.approve_student_discount(db, student_discount=student_discount, actor_user_id=current_user.id)
-    db.commit()
-    db.refresh(student_discount)
-    return student_discount
-
-
-@router.post("/student-discounts/{student_discount_id}/reject", response_model=StudentDiscountRead)
-def reject_student_discount(
-    student_discount_id: str,
-    payload: ApproveRejectRequest,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_permission("fees:approve_discount")),
-) -> StudentDiscount:
-    student_discount = _get_or_404(db, StudentDiscount, student_discount_id, "Discount request")
-    service.reject_student_discount(
-        db, student_discount=student_discount, actor_user_id=current_user.id, reason=payload.reason
-    )
-    db.commit()
-    db.refresh(student_discount)
-    return student_discount
 
 
 # ------------------------------------------------------------------ credits --
@@ -710,9 +622,22 @@ def report_fee_collection(
     class_id: str | None = None,
     from_date: date | None = None,
     to_date: date | None = None,
+    export_format: ExportFormat | None = Query(None, alias="format"),
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(require_permission("fees:report")),
-) -> list[FeeCollectionReportRow]:
+):
+    if export_format is not None:
+        return _download(
+            service.export_fee_collection_report(
+                db,
+                term_id=term_id,
+                class_id=class_id,
+                from_date=from_date,
+                to_date=to_date,
+                fmt=export_format,
+                currency_code=_currency_code(db),
+            )
+        )
     return service.fee_collection_report(
         db, term_id=term_id, class_id=class_id, from_date=from_date, to_date=to_date
     )
@@ -723,9 +648,21 @@ def report_outstanding_balances(
     term_id: str | None = None,
     class_id: str | None = None,
     min_balance_cents: int | None = None,
+    export_format: ExportFormat | None = Query(None, alias="format"),
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(require_permission("fees:report")),
-) -> list[OutstandingBalanceRow]:
+):
+    if export_format is not None:
+        return _download(
+            service.export_outstanding_balances_report(
+                db,
+                term_id=term_id,
+                class_id=class_id,
+                min_balance_cents=min_balance_cents,
+                fmt=export_format,
+                currency_code=_currency_code(db),
+            )
+        )
     return service.outstanding_balances_report(
         db, term_id=term_id, class_id=class_id, min_balance_cents=min_balance_cents
     )
@@ -733,26 +670,30 @@ def report_outstanding_balances(
 
 @router.get("/reports/fee-credit-liability", response_model=FeeCreditLiabilityReport)
 def report_fee_credit_liability(
+    export_format: ExportFormat | None = Query(None, alias="format"),
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(require_permission("fees:report")),
-) -> FeeCreditLiabilityReport:
+):
+    if export_format is not None:
+        return _download(
+            service.export_fee_credit_liability_report(
+                db, fmt=export_format, currency_code=_currency_code(db)
+            )
+        )
     return service.fee_credit_liability_report(db)
-
-
-@router.get("/reports/discount-utilization", response_model=list[DiscountUtilizationRow])
-def report_discount_utilization(
-    from_date: date | None = None,
-    to_date: date | None = None,
-    db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(require_permission("fees:report")),
-) -> list[DiscountUtilizationRow]:
-    return service.discount_utilization_report(db, from_date=from_date, to_date=to_date)
 
 
 @router.get("/reports/cash-up-report", response_model=list[CashUpReportRow])
 def report_cash_up(
     report_date: date,
+    export_format: ExportFormat | None = Query(None, alias="format"),
     db: Session = Depends(get_db),
     _current_user: CurrentUser = Depends(require_permission("fees:report")),
-) -> list[CashUpReportRow]:
+):
+    if export_format is not None:
+        return _download(
+            service.export_cash_up_report(
+                db, report_date=report_date, fmt=export_format, currency_code=_currency_code(db)
+            )
+        )
     return service.cash_up_report(db, report_date=report_date)

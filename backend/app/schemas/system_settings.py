@@ -14,3 +14,11 @@ class SystemSettingRead(BaseModel):
 
 class SystemSettingUpdate(BaseModel):
     value: str
+
+
+class TestEmailRequest(BaseModel):
+    to: str
+
+
+class TestEmailResult(BaseModel):
+    sent_to: str

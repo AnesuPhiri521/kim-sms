@@ -354,13 +354,13 @@ export function CreditPanel({ studentId, currencyCode, availableCreditCents, rea
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-3xl font-semibold tabular-nums">
+          <div className="text-3xl font-semibold tabular-nums">
             {availableCreditCents === undefined ? (
               <Skeleton className="h-9 w-40" />
             ) : (
               formatMoney(availableCreditCents, currencyCode)
             )}
-          </p>
+          </div>
 
           {creditsQuery.isLoading ? (
             <div className="space-y-2">

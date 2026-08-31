@@ -44,7 +44,6 @@ export const staffCreateSchema = z.object({
   first_name: z.string().min(1, "First name is required"),
   last_name: z.string().min(1, "Last name is required"),
   employee_no: z.string().min(1, "Employee number is required"),
-  department: z.string().min(1, "Department is required"),
   designation: z.string().min(1, "Designation is required"),
   qualification: z.string().optional().nullable(),
   date_joined: z.string().min(1, "Date joined is required"),

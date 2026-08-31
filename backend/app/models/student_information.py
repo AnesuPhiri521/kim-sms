@@ -30,6 +30,13 @@ class Student(Base, AuditMixin):
     current_section_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("sections.id"), nullable=True, index=True
     )
+    # The term the student joined in — set the first time they are placed into
+    # a section (doc 08: a mid-year joiner owes fees from their join term
+    # onward, never the terms before it). Nullable for students registered
+    # before this was tracked / not yet allocated a section.
+    enrollment_term_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("terms.id"), nullable=True, index=True
+    )
     # active | graduated | transferred_out | withdrawn (doc 05 §3)
     enrollment_status: Mapped[str] = mapped_column(String(20), default="active", index=True)
     admission_date: Mapped[date] = mapped_column(Date)

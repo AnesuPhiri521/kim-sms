@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Ban } from "lucide-react";
+import { Ban, Download } from "lucide-react";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { DataTable } from "@/components/shared/data-table";
 import { Badge } from "@/components/ui/badge";
@@ -20,9 +20,11 @@ import {
 } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
+import { useAcademicLabels } from "@/hooks/use-academic-labels";
 import { useEntityForm } from "@/hooks/use-entity-form";
 import { useFeePayments, useVoidPayment } from "@/hooks/use-fees";
-import { ApiError } from "@/lib/api/client";
+import { ApiError, downloadFile } from "@/lib/api/client";
+import { receiptDownloadPath } from "@/lib/api/fee-financial";
 import {
   PAYMENT_METHOD_LABELS,
   PAYMENT_STATUS_BADGE_VARIANT,
@@ -144,6 +146,7 @@ export function PaymentHistory({
 }: PaymentHistoryProps) {
   const [page, setPage] = useState(1);
   const [voidTarget, setVoidTarget] = useState<FeePayment | null>(null);
+  const { termLabel } = useAcademicLabels();
   const pageSize = 10;
 
   const { data, isLoading, isError, error, refetch } = useFeePayments({
@@ -178,13 +181,19 @@ export function PaymentHistory({
     },
     {
       id: "allocated",
-      header: "Allocated to",
-      cell: ({ row }) =>
-        row.original.allocations.length === 0 ? (
-          <span className="text-muted-foreground">Held as credit</span>
-        ) : (
-          `${row.original.allocations.length} invoice${row.original.allocations.length === 1 ? "" : "s"}`
-        ),
+      header: "Paid for",
+      cell: ({ row }) => {
+        const allocations = row.original.allocations;
+        if (allocations.length === 0) {
+          return <span className="text-muted-foreground">Held as credit</span>;
+        }
+        const terms = [
+          ...new Set(
+            allocations.map((a) => (a.term_id ? termLabel.get(a.term_id) ?? "Unknown term" : "Unknown term"))
+          ),
+        ];
+        return <span>{terms.join(", ")}</span>;
+      },
     },
     {
       id: "status",
@@ -199,6 +208,28 @@ export function PaymentHistory({
           ) : null}
         </div>
       ),
+    },
+    {
+      id: "receipt",
+      header: "Receipt",
+      cell: ({ row }) => {
+        const receipt = row.original.receipt;
+        if (!receipt) return <span className="text-muted-foreground">—</span>;
+        return (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              downloadFile(receiptDownloadPath(receipt.id), `${receipt.receipt_no}.pdf`).catch(() =>
+                toast.error("Couldn't download the receipt")
+              )
+            }
+          >
+            <Download className="size-4" />
+            {receipt.receipt_no}
+          </Button>
+        );
+      },
     },
     ...(readOnly
       ? []

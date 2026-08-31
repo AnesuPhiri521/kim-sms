@@ -182,6 +182,40 @@ def test_email_failure_does_not_block_in_app_notification(seeded_db: Session) ->
     assert notification.status == "failed"
 
 
+def test_email_config_is_web_editable_and_test_endpoint_works(
+    client: TestClient, login_as: Callable[[str], dict], seeded_db: Session
+) -> None:
+    admin = login_as("admin")
+
+    # The SMTP settings are seeded as editable system_settings rows.
+    listing = client.get("/api/v1/system-settings?category=Email", headers=admin)
+    assert listing.status_code == 200, listing.text
+    keys = {row["key"] for row in listing.json()}
+    assert {"smtp_host", "smtp_port", "smtp_username", "smtp_password", "email_enabled"} <= keys
+
+    # Not configured yet -> test endpoint says so.
+    unset = client.post("/api/v1/system-settings/email/test", json={"to": "admin@example.com"}, headers=admin)
+    assert unset.status_code == 503, unset.text
+
+    # Configure it through the API, then the test email goes out.
+    patched = client.patch(
+        "/api/v1/system-settings/smtp_host", json={"value": "smtp.example.com"}, headers=admin
+    )
+    assert patched.status_code == 200, patched.text
+    with patch("app.services.communication._send_email") as mock_send:
+        ok = client.post(
+            "/api/v1/system-settings/email/test", json={"to": "admin@example.com"}, headers=admin
+        )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["sent_to"] == "admin@example.com"
+    mock_send.assert_called_once()
+
+    assert service.email_is_configured(seeded_db) is True
+    # Master switch off disables it even with a host set.
+    client.patch("/api/v1/system-settings/email_enabled", json={"value": "false"}, headers=admin)
+    assert service.email_is_configured(seeded_db) is False
+
+
 def test_digest_mode_defers_email_without_attempting_delivery(seeded_db: Session) -> None:
     user = create_user_with_role(seeded_db, "parent", "parent5@example.com")
     service.update_preferences(

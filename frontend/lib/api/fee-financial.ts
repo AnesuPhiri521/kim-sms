@@ -3,8 +3,7 @@ import { apiFetch } from "@/lib/api/client";
 import { buildQueryString, pageSchema, type Page } from "@/lib/schemas/common";
 import {
   cashUpReportRowSchema,
-  discountSchema,
-  discountUtilizationRowSchema,
+  emailReceiptResultSchema,
   feeBalanceSchema,
   feeCategorySchema,
   feeCollectionReportRowSchema,
@@ -16,13 +15,11 @@ import {
   feeStructureSchema,
   generateInvoicesResultSchema,
   outstandingBalanceRowSchema,
-  studentDiscountSchema,
+  resyncEnrollmentFeesResultSchema,
   termFeeSummaryRowSchema,
   type ApplyCreditRequest,
   type CashUpReportRow,
-  type Discount,
-  type DiscountCreate,
-  type DiscountUtilizationRow,
+  type EmailReceiptResult,
   type FeeBalance,
   type FeeCategory,
   type FeeCategoryCreate,
@@ -39,7 +36,7 @@ import {
   type GenerateInvoicesResult,
   type OutstandingBalanceRow,
   type RecordPaymentRequest,
-  type StudentDiscount,
+  type ResyncEnrollmentFeesResult,
   type TermFeeSummaryRow,
 } from "@/lib/schemas/fee-financial";
 
@@ -109,6 +106,16 @@ export async function updateFeeStructure(structureId: string, payload: FeeStruct
 export async function generateInvoices(structureId: string): Promise<GenerateInvoicesResult> {
   const data = await apiFetch<unknown>(`/fee-structures/${structureId}/generate-invoices`, { method: "POST" });
   return generateInvoicesResultSchema.parse(data);
+}
+
+/**
+ * Corrects a student billed for term(s) before they joined: re-stamps the
+ * enrolment term to the current term, reverses earlier-term invoices that
+ * have taken no money, and (re)creates the current term's invoices.
+ */
+export async function resyncEnrollmentFees(studentId: string): Promise<ResyncEnrollmentFeesResult> {
+  const data = await apiFetch<unknown>(`/students/${studentId}/fee-enrollment/resync`, { method: "POST" });
+  return resyncEnrollmentFeesResultSchema.parse(data);
 }
 
 // --------------------------------------------------------------- invoices --
@@ -210,60 +217,15 @@ export async function voidPayment(paymentId: string, reason: string): Promise<Fe
   return feePaymentSchema.parse(data);
 }
 
-// -------------------------------------------------------------- discounts --
-
-export async function listDiscounts(params: { page?: number; pageSize?: number } = {}): Promise<Page<Discount>> {
-  const qs = buildQueryString({ page: params.page, page_size: params.pageSize });
-  const data = await apiFetch<unknown>(`/discounts${qs}`);
-  return pageSchema(discountSchema).parse(data);
-}
-
-export async function createDiscount(payload: DiscountCreate): Promise<Discount> {
-  const data = await apiFetch<unknown>("/discounts", { method: "POST", body: payload });
-  return discountSchema.parse(data);
-}
-
-export type ListStudentDiscountsParams = {
-  page?: number;
-  pageSize?: number;
-  status?: string;
-  student_id?: string;
-};
-
-/** Pending-approval queue (doc 08 UI) — without this, there was no way for
- * Admin/Principal to discover a pending request except by its id. */
-export async function listStudentDiscounts(
-  params: ListStudentDiscountsParams = {}
-): Promise<Page<StudentDiscount>> {
-  const qs = buildQueryString({
-    page: params.page,
-    page_size: params.pageSize,
-    status: params.status,
-    student_id: params.student_id,
-  });
-  const data = await apiFetch<unknown>(`/student-discounts${qs}`);
-  return pageSchema(studentDiscountSchema).parse(data);
-}
-
-export async function applyDiscountToStudent(discountId: string, studentId: string): Promise<StudentDiscount> {
-  const data = await apiFetch<unknown>(`/discounts/${discountId}/apply/${studentId}`, { method: "POST" });
-  return studentDiscountSchema.parse(data);
-}
-
-export async function approveStudentDiscount(studentDiscountId: string): Promise<StudentDiscount> {
-  const data = await apiFetch<unknown>(`/student-discounts/${studentDiscountId}/approve`, { method: "POST" });
-  return studentDiscountSchema.parse(data);
-}
-
-export async function rejectStudentDiscount(
-  studentDiscountId: string,
-  reason?: string | null
-): Promise<StudentDiscount> {
-  const data = await apiFetch<unknown>(`/student-discounts/${studentDiscountId}/reject`, {
-    method: "POST",
-    body: { reason: reason || null },
-  });
-  return studentDiscountSchema.parse(data);
+/**
+ * Emails the payment's receipt PDF to the student's billing-contact
+ * guardian(s). The backend returns 503 `SMTP_NOT_CONFIGURED` when email
+ * isn't set up and 422 `NO_RECIPIENT_EMAIL` when no guardian has an address
+ * — the caller surfaces those messages and falls back to Print.
+ */
+export async function emailReceipt(paymentId: string): Promise<EmailReceiptResult> {
+  const data = await apiFetch<unknown>(`/fee-payments/${paymentId}/receipt/email`, { method: "POST" });
+  return emailReceiptResultSchema.parse(data);
 }
 
 // ----------------------------------------------------------------- credits --
@@ -370,18 +332,42 @@ export async function getFeeCreditLiabilityReport(): Promise<FeeCreditLiabilityR
   return feeCreditLiabilityReportSchema.parse(data);
 }
 
-export async function getDiscountUtilizationReport(
-  params: { from_date?: string; to_date?: string } = {}
-): Promise<DiscountUtilizationRow[]> {
-  const qs = buildQueryString({ ...params });
-  const data = await apiFetch<unknown>(`/reports/discount-utilization${qs}`);
-  return z.array(discountUtilizationRowSchema).parse(data);
-}
-
 export async function getCashUpReport(reportDate: string): Promise<CashUpReportRow[]> {
   const qs = buildQueryString({ report_date: reportDate });
   const data = await apiFetch<unknown>(`/reports/cash-up-report${qs}`);
   return z.array(cashUpReportRowSchema).parse(data);
+}
+
+// -------------------------------------------------------- report exports --
+
+export type ReportExportFormat = "csv" | "xlsx" | "pdf";
+
+/**
+ * Path for downloading a financial report as a file. The backend adds
+ * `?format=` handling to the same report endpoints and returns a
+ * CSV / XLSX / PDF attachment. Fetch it through `downloadFile()` so the
+ * bearer token is sent.
+ */
+export function feeCollectionReportExportPath(
+  params: FeeCollectionReportParams,
+  format: ReportExportFormat
+): string {
+  return `/reports/fee-collection${buildQueryString({ ...params, format })}`;
+}
+
+export function outstandingBalancesReportExportPath(
+  params: OutstandingBalancesParams,
+  format: ReportExportFormat
+): string {
+  return `/reports/outstanding-balances${buildQueryString({ ...params, format })}`;
+}
+
+export function feeCreditLiabilityReportExportPath(format: ReportExportFormat): string {
+  return `/reports/fee-credit-liability${buildQueryString({ format })}`;
+}
+
+export function cashUpReportExportPath(reportDate: string, format: ReportExportFormat): string {
+  return `/reports/cash-up-report${buildQueryString({ report_date: reportDate, format })}`;
 }
 
 /** Receipt PDFs are served as a file download by the API, not JSON. */

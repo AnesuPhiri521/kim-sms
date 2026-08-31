@@ -98,11 +98,13 @@ export function FilterBar({ fields, values, onChange, onClear }: FilterBarProps)
               <PopoverContent className="w-auto p-0" align="start">
                 <Calendar
                   mode="range"
+                  captionLayout="dropdown"
+                  defaultMonth={fromDate}
                   selected={{ from: fromDate, to: toDate }}
                   onSelect={(range) =>
                     onChange(field.name, {
-                      from: range?.from ? range.from.toISOString().slice(0, 10) : undefined,
-                      to: range?.to ? range.to.toISOString().slice(0, 10) : undefined,
+                      from: range?.from ? format(range.from, "yyyy-MM-dd") : undefined,
+                      to: range?.to ? format(range.to, "yyyy-MM-dd") : undefined,
                     })
                   }
                 />

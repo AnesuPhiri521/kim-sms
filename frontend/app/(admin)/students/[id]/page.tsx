@@ -77,7 +77,7 @@ import { FeeLedgerTable } from "@/components/fees/fee-ledger-table";
 import { StudentAttendanceView } from "@/components/attendance/student-attendance-view";
 import { StudentPerformanceView } from "@/components/academic-performance/student-performance-view";
 import { StudentReportCardsView } from "@/components/examinations/student-report-cards-view";
-import { useStudentFeeBalance } from "@/hooks/use-fees";
+import { useResyncEnrollmentFees, useStudentFeeBalance } from "@/hooks/use-fees";
 import { useCurrencyCode } from "@/hooks/use-currency";
 
 /** Same trick as the registration wizard (see students/new/page.tsx): the
@@ -1076,6 +1076,48 @@ function GuardiansTab({
   );
 }
 
+function CorrectEnrollmentChargesButton({ studentId }: { studentId: string }) {
+  const [open, setOpen] = useState(false);
+  const resyncMutation = useResyncEnrollmentFees();
+
+  async function onConfirm() {
+    try {
+      const result = await resyncMutation.mutateAsync(studentId);
+      setOpen(false);
+      if (result.invoices_reversed === 0 && result.invoices_created === 0) {
+        toast.success("Nothing to correct — this student's charges already match their enrolment term.");
+      } else {
+        toast.success(
+          `Corrected: ${result.invoices_reversed} pre-enrolment charge(s) reversed, ` +
+            `${result.invoices_created} current-term invoice(s) added.` +
+            (result.invoices_skipped_with_activity > 0
+              ? ` ${result.invoices_skipped_with_activity} left untouched (already paid).`
+              : "")
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't correct enrolment charges");
+    }
+  }
+
+  return (
+    <ConfirmDialog
+      trigger={
+        <Button variant="outline" size="sm">
+          Correct enrolment charges
+        </Button>
+      }
+      open={open}
+      onOpenChange={setOpen}
+      title="Correct enrolment charges?"
+      description="Use this when a student was billed for term(s) before they actually joined. Their enrolment term is reset to the current term, any earlier-term invoice that has taken no money is reversed, and the current term's invoices are (re)created. Invoices with a payment or applied credit are left exactly as they are."
+      confirmLabel="Correct charges"
+      isPending={resyncMutation.isPending}
+      onConfirm={onConfirm}
+    />
+  );
+}
+
 function FeesTab({ studentId }: { studentId: string }) {
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
   const balanceQuery = useStudentFeeBalance(studentId);
@@ -1089,7 +1131,12 @@ function FeesTab({ studentId }: { studentId: string }) {
         isError={balanceQuery.isError}
         error={balanceQuery.error}
         onRetry={() => balanceQuery.refetch()}
-        actions={<Button onClick={() => setRecordPaymentOpen(true)}>Record payment</Button>}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <CorrectEnrollmentChargesButton studentId={studentId} />
+            <Button onClick={() => setRecordPaymentOpen(true)}>Make fees payment</Button>
+          </div>
+        }
       />
       <TermFeeHistory studentId={studentId} currencyCode={currencyCode} />
       <CreditPanel

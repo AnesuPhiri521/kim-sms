@@ -10,6 +10,7 @@ from app.core.errors import AppError
 from app.core.list_params import CommonListParams, common_list_params
 from app.db.session import get_db
 from app.models.academics_core import Section
+from app.models.fee_financial import FeeInvoice
 from app.models.student_information import (
     Guardian,
     Student,
@@ -35,10 +36,43 @@ from app.schemas.student_information import (
     StudentUpdate,
     WithdrawRequest,
 )
+from app.services import communication as communication_service
+from app.services import fee_financial as fee_service
 from app.services import student_information as service
 from app.services.audit_service import AuditService
+from app.services.settings_service import SettingsService
 
 router = APIRouter(prefix="/api/v1", tags=["student-information"])
+
+
+def _assign_enrollment_fees(db: Session, student: Student, actor_user_id: str | None) -> None:
+    """After a student is placed into a section, auto-charge the current
+    term's fees (doc 08) and notify the family — mirrors the commit-then-
+    notify ordering of `fee_financial.generate_invoices`. Never raises: a
+    fee/notification hiccup must not fail the registration or allocation.
+    """
+
+    try:
+        invoices = fee_service.assign_enrollment_fees(db, student, actor_user_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        return
+
+    if not invoices:
+        return
+    currency_code = str(SettingsService(db).get("currency_code", default="USD") or "USD")
+    for invoice in invoices:
+        communication_service.notify_student_and_guardians(
+            db,
+            student_id=invoice.student_id,
+            category="fees",
+            title="New fee invoice",
+            body=f"A new invoice of {currency_code} {invoice.amount_due_cents / 100:.2f} has been "
+            f"generated, due {invoice.due_date.isoformat()}.",
+            related_entity_type="fee_invoice",
+            related_entity_id=invoice.id,
+        )
 
 
 def _page[SchemaT: BaseModel](
@@ -103,6 +137,8 @@ def create_student(
         actor_user_id=current_user.id,
     )
     db.commit()
+    if student.current_section_id is not None:
+        _assign_enrollment_fees(db, student, current_user.id)
     db.refresh(student)
     return student
 
@@ -224,6 +260,21 @@ def allocate_section(
         actor_user_id=current_user.id,
     )
     db.commit()
+
+    # First placement into a section (student had no fees yet for the current
+    # term) — charge this term now. A mid-year transfer/promotion of an
+    # already-billed student is left alone; their existing invoices stand.
+    current_term = fee_service.get_current_term(db)
+    already_billed = current_term is not None and db.scalar(
+        select(FeeInvoice.id).where(
+            FeeInvoice.student_id == student.id,
+            FeeInvoice.term_id == current_term.id,
+            FeeInvoice.is_active.is_(True),
+        )
+    )
+    if current_term is not None and not already_billed:
+        _assign_enrollment_fees(db, student, current_user.id)
+
     db.refresh(student)
     return student
 

@@ -117,32 +117,6 @@ function PersonalInfoStep({ form }: { form: ReturnType<typeof useEntityForm<type
       />
       <FormField
         control={form.control}
-        name="nationality"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>Nationality (optional)</FormLabel>
-            <FormControl>
-              <Input {...field} value={field.value ?? ""} />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-      <FormField
-        control={form.control}
-        name="blood_group"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>Blood group (optional)</FormLabel>
-            <FormControl>
-              <Input {...field} value={field.value ?? ""} placeholder="e.g. O+" />
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-      <FormField
-        control={form.control}
         name="medical_notes"
         render={({ field }) => (
           <FormItem className="sm:col-span-2">
@@ -621,8 +595,6 @@ export default function RegisterStudentPage() {
     last_name: "",
     date_of_birth: "",
     gender: "",
-    nationality: "",
-    blood_group: "",
     medical_notes: "",
     guardian_ids: [],
     current_section_id: undefined,

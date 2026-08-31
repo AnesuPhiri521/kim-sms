@@ -35,7 +35,6 @@ export default function StaffOnboardingPage() {
     first_name: "",
     last_name: "",
     employee_no: "",
-    department: "",
     designation: "",
     qualification: "",
     date_joined: "",
@@ -137,19 +136,6 @@ export default function StaffOnboardingPage() {
                       <FormLabel>Date joined</FormLabel>
                       <FormControl>
                         <DatePicker value={field.value} onChange={field.onChange} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="department"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Department</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="e.g. Mathematics" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

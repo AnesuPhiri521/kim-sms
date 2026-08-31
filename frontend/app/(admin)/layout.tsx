@@ -37,7 +37,6 @@ const navItems: NavItem[] = [
     items: [
       { label: "Fee Structures", href: "/fees/structures", icon: CircleDollarSign },
       { label: "Outstanding Balances", href: "/fees/invoices", icon: CircleDollarSign },
-      { label: "Discounts", href: "/fees/discounts", icon: CircleDollarSign },
       { label: "Fee Reports", href: "/fees/reports", icon: CircleDollarSign },
     ],
   },

@@ -19,3 +19,9 @@ export function useUpdateSystemSetting() {
     },
   });
 }
+
+export function useSendTestEmail() {
+  return useMutation({
+    mutationFn: (to: string) => api.sendTestEmail(to),
+  });
+}

@@ -22,13 +22,6 @@ logger = logging.getLogger("edumanage.seed")
 # key -> (value, value_type, category, description)
 SYSTEM_SETTINGS_DEFAULTS: dict[str, tuple[str, str, str, str]] = {
     "currency_code": ("USD", "string", "Finance", "Currency for all fee amounts (doc 01 Regional context)"),
-    "fee_discount_approval_threshold_cents": (
-        "0",
-        "integer",
-        "Finance",
-        "Discounts at/above this amount require Principal/Admin approval — "
-        "confirm real value with school (doc 18 §B)",
-    ),
     "attendance_edit_lock_hours": (
         "24",
         "integer",
@@ -60,6 +53,23 @@ SYSTEM_SETTINGS_DEFAULTS: dict[str, tuple[str, str, str, str]] = {
         "boolean",
         "Finance",
         "Whether teachers see a simple fee current/overdue flag (privacy, off by default)",
+    ),
+    "email_enabled": (
+        "true",
+        "boolean",
+        "Email",
+        "Master switch for outbound email (fee receipts, notifications) — needs an SMTP host below",
+    ),
+    "smtp_host": ("", "string", "Email", "SMTP server hostname — leave blank to disable email"),
+    "smtp_port": ("587", "integer", "Email", "SMTP server port"),
+    "smtp_username": ("", "string", "Email", "SMTP username — leave blank if the server needs no login"),
+    "smtp_password": ("", "string", "Email", "SMTP password / app password"),
+    "smtp_use_tls": ("true", "boolean", "Email", "Use STARTTLS when connecting to the SMTP server"),
+    "smtp_from_address": (
+        "no-reply@example.com",
+        "string",
+        "Email",
+        "From address on outgoing mail",
     ),
     "password_min_length": ("10", "integer", "Security", "Minimum password length enforced server-side"),
     "backup_retention_daily_days": ("30", "integer", "Ops", "Days to retain daily backups"),
@@ -151,8 +161,28 @@ def seed_academic_calendar(db: Session) -> AcademicYear:
     db.add(year)
     db.flush()
 
+    # Three roughly-equal terms with real date ranges, so fee/enrolment logic
+    # attributes charges to whichever term actually contains today's date
+    # (the admin can adjust the dates later). The term covering today is
+    # flagged current.
+    term_spans = [
+        (date(today.year, 1, 1), date(today.year, 4, 30)),
+        (date(today.year, 5, 1), date(today.year, 8, 31)),
+        (date(today.year, 9, 1), date(today.year, 12, 31)),
+    ]
     for i, name in enumerate(["Term 1", "Term 2", "Term 3"], start=1):
-        db.add(Term(id=str(uuid4()), academic_year_id=year.id, term_number=i, name=name))
+        span_start, span_end = term_spans[i - 1]
+        db.add(
+            Term(
+                id=str(uuid4()),
+                academic_year_id=year.id,
+                term_number=i,
+                name=name,
+                start_date=span_start,
+                end_date=span_end,
+                is_current=span_start <= today <= span_end,
+            )
+        )
     db.flush()
     logger.info("demo academic year + 3-term template seeded")
     return year

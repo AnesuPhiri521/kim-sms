@@ -20,7 +20,7 @@ class StaffCreate(BaseModel):
     first_name: str
     last_name: str
     employee_no: str
-    department: str
+    department: str | None = None
     designation: str
     qualification: str | None = None
     date_joined: date

@@ -73,7 +73,7 @@ export function FeeLedgerTable({ studentId, currencyCode }: FeeLedgerTableProps)
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div>
           <CardTitle>Fee ledger</CardTitle>
-          <CardDescription>Every charge, payment, discount, and credit movement, oldest first.</CardDescription>
+          <CardDescription>Every charge, payment, and credit movement, oldest first.</CardDescription>
         </div>
         <Select value={entryType} onValueChange={setEntryType}>
           <SelectTrigger className="w-44">

@@ -12,7 +12,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { useSystemSettings, useUpdateSystemSetting } from "@/hooks/use-system-settings";
+import {
+  useSendTestEmail,
+  useSystemSettings,
+  useUpdateSystemSetting,
+} from "@/hooks/use-system-settings";
 import { SYSTEM_SETTING_CATEGORIES, categoryLabel, type SystemSetting } from "@/lib/schemas/system-settings";
 import { ApiError } from "@/lib/api/client";
 
@@ -21,6 +25,7 @@ function SettingRow({ setting }: { setting: SystemSetting }) {
   const [value, setValue] = useState(setting.value);
   const updateMutation = useUpdateSystemSetting();
   const isBool = setting.value_type === "bool" || setting.value_type === "boolean";
+  const isSecret = setting.key.toLowerCase().includes("password");
 
   async function save(nextValue: string) {
     try {
@@ -51,6 +56,7 @@ function SettingRow({ setting }: { setting: SystemSetting }) {
         <div className="flex items-center gap-1.5">
           <Input
             className="h-8 w-40"
+            type={isSecret ? "password" : "text"}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             disabled={updateMutation.isPending}
@@ -82,7 +88,9 @@ function SettingRow({ setting }: { setting: SystemSetting }) {
         </div>
       ) : (
         <div className="flex items-center gap-1.5">
-          <span className="text-sm tabular-nums">{setting.value}</span>
+          <span className="text-sm tabular-nums">
+            {isSecret ? (setting.value ? "••••••••" : "—") : setting.value || "—"}
+          </span>
           <Button size="icon" variant="ghost" className="size-8" onClick={() => setEditing(true)} aria-label="Edit">
             <Pencil className="size-3.5" />
           </Button>
@@ -92,18 +100,58 @@ function SettingRow({ setting }: { setting: SystemSetting }) {
   );
 }
 
+function TestEmailCard() {
+  const [to, setTo] = useState("");
+  const testMutation = useSendTestEmail();
+
+  async function send() {
+    try {
+      const result = await testMutation.mutateAsync(to.trim());
+      toast.success(`Test email sent to ${result.sent_to}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't send the test email");
+    }
+  }
+
+  return (
+    <Card className="mb-4">
+      <CardContent className="flex flex-col gap-2 pt-4 sm:flex-row sm:items-end">
+        <div className="flex-1 space-y-1.5">
+          <p className="text-sm font-medium">Send a test email</p>
+          <p className="text-muted-foreground text-xs">
+            Save the SMTP settings below first, then confirm they work.
+          </p>
+          <Input
+            type="email"
+            placeholder="you@example.com"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+          />
+        </div>
+        <Button onClick={send} disabled={testMutation.isPending || !to.includes("@")}>
+          {testMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+          Send test
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CategoryPanel({ settings }: { settings: SystemSetting[] }) {
   if (settings.length === 0) {
     return <EmptyState title="No settings in this category" />;
   }
   return (
-    <Card>
-      <CardContent className="pt-4">
-        {settings.map((s) => (
-          <SettingRow key={s.id} setting={s} />
-        ))}
-      </CardContent>
-    </Card>
+    <>
+      {settings[0]?.category === "Email" ? <TestEmailCard /> : null}
+      <Card>
+        <CardContent className="pt-4">
+          {settings.map((s) => (
+            <SettingRow key={s.id} setting={s} />
+          ))}
+        </CardContent>
+      </Card>
+    </>
   );
 }
 

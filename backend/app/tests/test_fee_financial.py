@@ -1,13 +1,13 @@
 import uuid
 from collections.abc import Callable
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.academics_core import AcademicYear, SchoolClass, Section, Term
-from app.models.fee_financial import Receipt
+from app.models.fee_financial import FeeLedger, Receipt
 from app.models.student_information import Guardian, Student, StudentGuardian
 from app.tests.conftest import create_user_with_role
 
@@ -241,115 +241,6 @@ def test_idempotency_key_prevents_duplicate_payment(
     assert payments.json()["meta"]["total"] == 1
 
 
-# ----------------------------------------------------------------- discounts --
-
-
-def test_discount_below_threshold_auto_approved_above_requires_approval(
-    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
-) -> None:
-    admin = login_as("admin")
-    accountant = login_as("accountant")
-    student_id = fee_setup["student"].id
-
-    # The seeded default is 0 cents (doc 18 §B: a real school hasn't
-    # confirmed a value yet, so it's maximally cautious — every discount
-    # requires approval). Set an explicit threshold so this test actually
-    # exercises "below vs at/above", not just the seeded placeholder.
-    threshold_set = client.patch(
-        "/api/v1/system-settings/fee_discount_approval_threshold_cents",
-        json={"value": "1000"},
-        headers=admin,
-    )
-    assert threshold_set.status_code == 200, threshold_set.text
-
-    small = client.post(
-        "/api/v1/discounts",
-        json={"name": "Small", "type": "fixed", "value": 500, "applies_to": "student"},
-        headers=accountant,
-    )
-    assert small.status_code == 201, small.text
-    small_applied = client.post(
-        f"/api/v1/discounts/{small.json()['id']}/apply/{student_id}", headers=accountant
-    )
-    assert small_applied.status_code == 201
-    assert small_applied.json()["status"] == "approved"
-
-    large = client.post(
-        "/api/v1/discounts",
-        json={
-            "name": "Large",
-            "type": "fixed",
-            "value": 500,
-            "applies_to": "student",
-            "requires_approval": True,
-        },
-        headers=accountant,
-    )
-    large_applied = client.post(
-        f"/api/v1/discounts/{large.json()['id']}/apply/{student_id}", headers=accountant
-    )
-    assert large_applied.status_code == 201
-    assert large_applied.json()["status"] == "pending"
-
-    # Accountant cannot approve their own request.
-    forbidden = client.post(
-        f"/api/v1/student-discounts/{large_applied.json()['id']}/approve", headers=accountant
-    )
-    assert forbidden.status_code == 403
-
-    approved = client.post(f"/api/v1/student-discounts/{large_applied.json()['id']}/approve", headers=admin)
-    assert approved.status_code == 200
-    assert approved.json()["status"] == "approved"
-
-
-def test_student_discounts_list_finds_pending_queue(
-    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
-) -> None:
-    admin = login_as("admin")
-    accountant = login_as("accountant")
-    student_id = fee_setup["student"].id
-
-    threshold_set = client.patch(
-        "/api/v1/system-settings/fee_discount_approval_threshold_cents", json={"value": "1000"}, headers=admin
-    )
-    assert threshold_set.status_code == 200, threshold_set.text
-
-    discount = client.post(
-        "/api/v1/discounts",
-        json={
-            "name": "Needs approval",
-            "type": "fixed",
-            "value": 5000,
-            "applies_to": "student",
-            "requires_approval": True,
-        },
-        headers=accountant,
-    )
-    applied = client.post(f"/api/v1/discounts/{discount.json()['id']}/apply/{student_id}", headers=accountant)
-    assert applied.status_code == 201, applied.text
-    assert applied.json()["status"] == "pending"
-
-    # Before this endpoint existed, there was no way for Admin/Principal to
-    # discover this row at all — only to act on it if they already had its
-    # id from somewhere else.
-    admin_queue = client.get("/api/v1/student-discounts?status=pending", headers=admin)
-    assert admin_queue.status_code == 200, admin_queue.text
-    assert admin_queue.json()["meta"]["total"] == 1
-    assert admin_queue.json()["data"][0]["id"] == applied.json()["id"]
-
-    # `fees:create_discount` without `fees:report`/`fees:approve_discount`
-    # would be scoped to only the caller's own requests, but the seeded
-    # Accountant role holds `fees:report` too, so it already sees everyone's.
-    accountant_queue = client.get("/api/v1/student-discounts?status=pending", headers=accountant)
-    assert accountant_queue.json()["meta"]["total"] == 1
-
-    approve = client.post(f"/api/v1/student-discounts/{applied.json()['id']}/approve", headers=admin)
-    assert approve.status_code == 200, approve.text
-
-    after_approval = client.get("/api/v1/student-discounts?status=pending", headers=admin)
-    assert after_approval.json()["meta"]["total"] == 0
-
-
 # --------------------------------------------------------------------- void --
 
 
@@ -469,36 +360,6 @@ def test_terms_summary_shows_partial_term_independent_of_later_terms(
 
 
 # ------------------------------------------------------------------ reports --
-
-
-def test_discount_utilization_report_reflects_approved_discounts(
-    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
-) -> None:
-    admin = login_as("admin")
-    accountant = login_as("accountant")
-    student_id = fee_setup["student"].id
-
-    threshold_set = client.patch(
-        "/api/v1/system-settings/fee_discount_approval_threshold_cents", json={"value": "1000"}, headers=admin
-    )
-    assert threshold_set.status_code == 200, threshold_set.text
-
-    discount = client.post(
-        "/api/v1/discounts",
-        json={"name": "Sibling Discount", "type": "fixed", "value": 750, "applies_to": "student"},
-        headers=accountant,
-    )
-    assert discount.status_code == 201, discount.text
-    applied = client.post(f"/api/v1/discounts/{discount.json()['id']}/apply/{student_id}", headers=accountant)
-    assert applied.status_code == 201, applied.text
-    assert applied.json()["status"] == "approved"  # 750 < the 1000-cent threshold just set
-
-    report = client.get("/api/v1/reports/discount-utilization", headers=admin)
-    assert report.status_code == 200, report.text
-    rows = {row["discount_id"]: row for row in report.json()}
-    row = rows[discount.json()["id"]]
-    assert row["approved_count"] == 1
-    assert row["total_discount_cents"] == 750
 
 
 def test_cash_up_report_breaks_down_by_method_and_excludes_voided(
@@ -646,7 +507,32 @@ def test_receipt_pdf_downloads_after_payment(
     pdf = client.get(f"/api/v1/receipts/{receipt.id}.pdf", headers=admin)
     assert pdf.status_code == 200, pdf.text
     assert pdf.headers["content-type"] == "application/pdf"
-    assert len(pdf.content) > 0
+    assert pdf.content.startswith(b"%PDF")
+    # A proper itemised receipt, not a one-liner.
+    assert len(pdf.content) > 1500
+
+
+def test_receipt_pdf_itemises_each_term_paid(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict, seeded_db: Session
+) -> None:
+    """A payment spanning two terms produces a receipt with a line per term
+    and the payment/allocation API exposes the term each slice settled.
+    """
+    admin = login_as("admin")
+    s1 = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _generate_invoices(client, admin, s1["id"])
+    s2 = _create_structure(client, admin, fee_setup, fee_setup["term2"], amount_cents=5000)
+    _generate_invoices(client, admin, s2["id"])
+    student_id = fee_setup["student"].id
+
+    payment = _pay(client, admin, student_id, 8000, idem="receipt-multiterm").json()
+    alloc_terms = {a["term_id"] for a in payment["allocations"]}
+    assert alloc_terms == {fee_setup["term1"].id, fee_setup["term2"].id}
+
+    receipt = seeded_db.query(Receipt).filter(Receipt.payment_id == payment["id"]).one()
+    pdf = client.get(f"/api/v1/receipts/{receipt.id}.pdf", headers=admin)
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
 
 
 # ------------------------------------------------------- notification triggers --
@@ -674,3 +560,340 @@ def test_invoice_generation_and_payment_notify_the_guardian(
     titles = {row["title"] for row in notifications.json()["data"]}
     assert "New fee invoice" in titles
     assert "Payment received" in titles
+
+
+# --------------------------------------------------- enrolment auto-charge --
+
+
+def _register_student_in_section(client: TestClient, headers: dict, setup: dict) -> dict:
+    guardian = client.post(
+        "/api/v1/guardians",
+        json={"first_name": "New", "last_name": "Parent", "relationship": "Mother", "phone": "0779999888"},
+        headers=headers,
+    )
+    assert guardian.status_code == 201, guardian.text
+    resp = client.post(
+        "/api/v1/students",
+        json={
+            "first_name": "Joiner",
+            "last_name": "Midyear",
+            "date_of_birth": "2018-01-01",
+            "gender": "female",
+            "guardian_ids": [guardian.json()["id"]],
+            "current_section_id": setup["section"].id,
+            "academic_year_id": setup["year"].id,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_enrolment_auto_charges_current_term_fees_only(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    """term2 is the current term. A student registered into the section is
+    charged term2's fees only — never term1, which predates them joining.
+    """
+    admin = login_as("admin")
+    _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _create_structure(client, admin, fee_setup, fee_setup["term2"], amount_cents=8000)
+
+    student = _register_student_in_section(client, admin, fee_setup)
+    assert student["enrollment_term_id"] == fee_setup["term2"].id
+
+    term1_invoices = client.get(
+        f"/api/v1/fee-invoices?student_id={student['id']}&term_id={fee_setup['term1'].id}", headers=admin
+    ).json()["data"]
+    term2_invoices = client.get(
+        f"/api/v1/fee-invoices?student_id={student['id']}&term_id={fee_setup['term2'].id}", headers=admin
+    ).json()["data"]
+    assert term1_invoices == []
+    assert len(term2_invoices) == 1
+    assert term2_invoices[0]["amount_due_cents"] == 8000
+
+    balance = client.get(f"/api/v1/students/{student['id']}/fee-balance", headers=admin).json()
+    assert balance["balance_cents"] == 8000
+
+
+def test_terms_summary_hides_terms_before_enrolment(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    admin = login_as("admin")
+    _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _create_structure(client, admin, fee_setup, fee_setup["term2"], amount_cents=8000)
+    student = _register_student_in_section(client, admin, fee_setup)
+
+    summary = client.get(
+        f"/api/v1/students/{student['id']}/fee-terms-summary?academic_year_id={fee_setup['year'].id}",
+        headers=admin,
+    )
+    assert summary.status_code == 200, summary.text
+    term_ids = {row["term_id"] for row in summary.json()}
+    assert term_ids == {fee_setup["term2"].id}
+
+
+# --------------------------------------------------------- receipt sending --
+
+
+def test_payment_response_includes_receipt(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    admin = login_as("admin")
+    structure = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _generate_invoices(client, admin, structure["id"])
+    resp = _pay(client, admin, fee_setup["student"].id, 5000, idem="receipt-inline")
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["receipt"] is not None
+    assert resp.json()["receipt"]["receipt_no"].startswith("RCT-")
+
+
+def test_email_receipt_requires_smtp_then_sends(
+    client: TestClient,
+    login_as: Callable[[str], dict],
+    fee_setup: dict,
+    seeded_db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    admin = login_as("admin")
+    structure = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _generate_invoices(client, admin, structure["id"])
+    payment = _pay(client, admin, fee_setup["student"].id, 5000, idem="receipt-email").json()
+
+    # SMTP not configured in tests -> a clear 503, not a 500.
+    unset = client.post(f"/api/v1/fee-payments/{payment['id']}/receipt/email", headers=admin)
+    assert unset.status_code == 503, unset.text
+    assert unset.json()["error"]["code"] == "SMTP_NOT_CONFIGURED"
+
+    guardian = seeded_db.get(Guardian, fee_setup["guardian"].id)
+    guardian.email = "billing@example.com"
+    seeded_db.commit()
+
+    sent: list[tuple] = []
+
+    def _fake_send(_db, to_address, subject, body, *, attachments=None):
+        sent.append((to_address, attachments))
+
+    monkeypatch.setattr("app.core.config.settings.smtp_host", "smtp.test.local")
+    monkeypatch.setattr("app.services.communication._send_email", _fake_send)
+
+    ok = client.post(f"/api/v1/fee-payments/{payment['id']}/receipt/email", headers=admin)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["sent_to"] == ["billing@example.com"]
+    assert sent and sent[0][0] == "billing@example.com"
+    assert sent[0][1] and sent[0][1][0][2] == "application/pdf"
+
+
+# ----------------------------------------------- current-term / resync fix --
+
+
+def _add_dated_term(seeded_db: Session, year, number: int, name: str, start, end, is_current=False) -> Term:
+    term = Term(
+        id=str(uuid.uuid4()),
+        academic_year_id=year.id,
+        term_number=number,
+        name=name,
+        start_date=start,
+        end_date=end,
+        is_current=is_current,
+    )
+    seeded_db.add(term)
+    seeded_db.commit()
+    return term
+
+
+def test_get_current_term_follows_the_calendar_not_a_stale_flag(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict, seeded_db: Session
+) -> None:
+    """Term 1 is (wrongly) still flagged current; today falls in a later
+    term's date range. A student registered now must be billed for the term
+    that actually contains today, not Term 1.
+    """
+    today = date.today()
+    # fee_setup's term1/term2 have no dates; make term1 the stale "current".
+    t1 = seeded_db.get(Term, fee_setup["term1"].id)
+    t2 = seeded_db.get(Term, fee_setup["term2"].id)
+    t1.is_current, t2.is_current = True, False
+    seeded_db.commit()
+    now_term = _add_dated_term(
+        seeded_db, fee_setup["year"], 3, "Term 3",
+        today - timedelta(days=5), today + timedelta(days=5),
+    )
+
+    admin = login_as("admin")
+    _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _create_structure(client, admin, fee_setup, now_term, amount_cents=9000)
+    student = _register_student_in_section(client, admin, fee_setup)
+
+    assert student["enrollment_term_id"] == now_term.id
+    inv = client.get(f"/api/v1/fee-invoices?student_id={student['id']}", headers=admin).json()["data"]
+    assert {i["term_id"] for i in inv} == {now_term.id}
+
+
+def test_resync_enrollment_fees_reverses_pre_enrollment_charges(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict, seeded_db: Session
+) -> None:
+    today = date.today()
+    now_term = _add_dated_term(
+        seeded_db, fee_setup["year"], 3, "Term 3", today - timedelta(days=5), today + timedelta(days=5)
+    )
+    admin = login_as("admin")
+    student_id = fee_setup["student"].id
+
+    # Simulate the old bug: student was charged for Term 1 (which they missed).
+    old_structure = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _generate_invoices(client, admin, old_structure["id"])
+    seeded_db.get(Student, student_id).enrollment_term_id = fee_setup["term1"].id
+    seeded_db.commit()
+    _create_structure(client, admin, fee_setup, now_term, amount_cents=9000)
+
+    before = client.get(f"/api/v1/students/{student_id}/fee-balance", headers=admin).json()
+    assert before["balance_cents"] == 5000
+
+    resp = client.post(f"/api/v1/students/{student_id}/fee-enrollment/resync", headers=admin)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["enrollment_term_id"] == now_term.id
+    assert body["invoices_reversed"] == 1
+    assert body["invoices_created"] == 1
+    assert body["invoices_skipped_with_activity"] == 0
+
+    after = client.get(f"/api/v1/students/{student_id}/fee-balance", headers=admin).json()
+    assert after["balance_cents"] == 9000  # only the real, current-term charge stands
+
+    # Term 1 invoice is gone from every student-facing view.
+    invoices = client.get(f"/api/v1/fee-invoices?student_id={student_id}", headers=admin).json()["data"]
+    assert {i["term_id"] for i in invoices} == {now_term.id}
+    summary = client.get(
+        f"/api/v1/students/{student_id}/fee-terms-summary?academic_year_id={fee_setup['year'].id}",
+        headers=admin,
+    ).json()
+    assert {r["term_id"] for r in summary} == {now_term.id}
+    assert any(e.entry_type == "charge_reversal" for e in seeded_db.query(FeeLedger).all())
+
+
+def test_resync_leaves_paid_pre_enrollment_invoices_alone(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict, seeded_db: Session
+) -> None:
+    today = date.today()
+    _add_dated_term(
+        seeded_db, fee_setup["year"], 3, "Term 3", today - timedelta(days=5), today + timedelta(days=5)
+    )
+    admin = login_as("admin")
+    student_id = fee_setup["student"].id
+
+    old_structure = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=5000)
+    _generate_invoices(client, admin, old_structure["id"])
+    _pay(client, admin, student_id, 5000, idem="already-paid-term1")
+    seeded_db.get(Student, student_id).enrollment_term_id = fee_setup["term1"].id
+    seeded_db.commit()
+
+    resp = client.post(f"/api/v1/students/{student_id}/fee-enrollment/resync", headers=admin)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["invoices_reversed"] == 0
+    assert resp.json()["invoices_skipped_with_activity"] == 1
+
+    invoices = client.get(f"/api/v1/fee-invoices?student_id={student_id}", headers=admin).json()["data"]
+    term1_inv = next(i for i in invoices if i["term_id"] == fee_setup["term1"].id)
+    assert term1_inv["status"] == "paid"
+
+
+def test_get_current_term_picks_the_upcoming_term_during_a_holiday_gap(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict, seeded_db: Session
+) -> None:
+    """Today sits between two terms. A student registered now must be billed
+    for the term about to start, not the one that just finished.
+    """
+    today = date.today()
+    t1 = seeded_db.get(Term, fee_setup["term1"].id)
+    t2 = seeded_db.get(Term, fee_setup["term2"].id)
+    t1.start_date, t1.end_date = today - timedelta(days=120), today - timedelta(days=90)
+    t2.start_date, t2.end_date = today - timedelta(days=60), today - timedelta(days=20)
+    t1.is_current = t2.is_current = False
+    seeded_db.commit()
+    upcoming = _add_dated_term(
+        seeded_db, fee_setup["year"], 3, "Term 3", today + timedelta(days=10), today + timedelta(days=100)
+    )
+
+    admin = login_as("admin")
+    _create_structure(client, admin, fee_setup, upcoming, amount_cents=7000)
+    student = _register_student_in_section(client, admin, fee_setup)
+
+    assert student["enrollment_term_id"] == upcoming.id
+    invoices = client.get(f"/api/v1/fee-invoices?student_id={student['id']}", headers=admin).json()["data"]
+    assert {i["term_id"] for i in invoices} == {upcoming.id}
+
+
+def test_terms_summary_never_marks_an_unbilled_term_as_paid(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict, seeded_db: Session
+) -> None:
+    """A term the student holds no invoice for is 'not_billed', never 'paid';
+    a finished term they were never billed for is dropped entirely.
+    """
+    today = date.today()
+    t1 = seeded_db.get(Term, fee_setup["term1"].id)
+    t1.start_date, t1.end_date = today - timedelta(days=120), today - timedelta(days=90)  # long over
+    t2 = seeded_db.get(Term, fee_setup["term2"].id)
+    t2.start_date, t2.end_date = today - timedelta(days=5), today + timedelta(days=80)  # current
+    t1.is_current, t2.is_current = False, True
+    seeded_db.commit()
+
+    admin = login_as("admin")
+    structure = _create_structure(client, admin, fee_setup, fee_setup["term2"], amount_cents=6000)
+    _generate_invoices(client, admin, structure["id"])
+    student_id = fee_setup["student"].id
+
+    rows = client.get(
+        f"/api/v1/students/{student_id}/fee-terms-summary?academic_year_id={fee_setup['year'].id}",
+        headers=admin,
+    ).json()
+    by_term = {r["term_id"]: r for r in rows}
+    assert fee_setup["term1"].id not in by_term  # finished, never billed -> gone
+    assert by_term[fee_setup["term2"].id]["status"] == "unpaid"
+
+
+# --------------------------------------------------------- report exports --
+
+
+def test_financial_reports_export_to_csv_xlsx_pdf(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    admin = login_as("admin")
+    structure = _create_structure(client, admin, fee_setup, fee_setup["term1"], amount_cents=10000)
+    _generate_invoices(client, admin, structure["id"])
+    student_id = fee_setup["student"].id
+    _pay(client, admin, student_id, 4000, idem="report-export-pay")
+
+    today = date.today().isoformat()
+    cases = [
+        ("/api/v1/reports/fee-collection?format=csv", "text/csv", b","),
+        ("/api/v1/reports/fee-collection?format=xlsx", "spreadsheetml", b"PK"),
+        ("/api/v1/reports/fee-collection?format=pdf", "application/pdf", b"%PDF"),
+        ("/api/v1/reports/outstanding-balances?format=csv", "text/csv", b"Outstanding balance"),
+        ("/api/v1/reports/fee-credit-liability?format=xlsx", "spreadsheetml", b"PK"),
+        (f"/api/v1/reports/cash-up-report?report_date={today}&format=pdf", "application/pdf", b"%PDF"),
+    ]
+    for url, ctype, needle in cases:
+        resp = client.get(url, headers=admin)
+        assert resp.status_code == 200, f"{url} -> {resp.status_code} {resp.text[:200]}"
+        assert ctype in resp.headers["content-type"], url
+        assert "attachment;" in resp.headers.get("content-disposition", ""), url
+        assert needle in resp.content, url
+        assert len(resp.content) > 40, url
+
+    # The CSV actually carries the numbers, as decimal dollars not cents.
+    csv_text = client.get(
+        "/api/v1/reports/fee-collection?format=csv", headers=admin
+    ).content.decode("utf-8-sig")
+    assert "Term,Class,Billed,Collected,Collection rate" in csv_text
+    assert "100.00" in csv_text  # 10000 cents billed
+    assert "40.00" in csv_text  # 4000 cents collected
+
+
+def test_report_export_still_returns_json_without_format(
+    client: TestClient, login_as: Callable[[str], dict], fee_setup: dict
+) -> None:
+    admin = login_as("admin")
+    resp = client.get("/api/v1/reports/fee-credit-liability", headers=admin)
+    assert resp.status_code == 200
+    assert resp.json() == {"total_available_credit_cents": 0, "credit_count": 0}

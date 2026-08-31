@@ -2,7 +2,6 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import * as api from "@/lib/api/fee-financial";
 import type {
   ApplyCreditRequest,
-  DiscountCreate,
   FeeCategoryCreate,
   FeeCategoryUpdate,
   FeeStructureCreate,
@@ -26,7 +25,6 @@ export const feeCategoriesKey = ["fees", "categories"] as const;
 export const feeStructuresKey = (params: ListFeeStructuresParams) => ["fees", "structures", params] as const;
 export const feeInvoicesKey = (params: ListFeeInvoicesParams) => ["fees", "invoices", params] as const;
 export const feePaymentsKey = (params: ListFeePaymentsParams) => ["fees", "payments", params] as const;
-export const discountsKey = ["fees", "discounts"] as const;
 export const studentCreditsKey = (studentId: string) => ["fees", "student", studentId, "credits"] as const;
 export const studentLedgerKey = (studentId: string, params: ListFeeLedgerParams) =>
   ["fees", "student", studentId, "ledger", params] as const;
@@ -112,6 +110,14 @@ export function useGenerateInvoices() {
   });
 }
 
+export function useResyncEnrollmentFees() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (studentId: string) => api.resyncEnrollmentFees(studentId),
+    onSuccess: (_data, studentId) => invalidateStudentFees(queryClient, studentId),
+  });
+}
+
 // --------------------------------------------------------------- invoices --
 
 export function useFeeInvoices(params: ListFeeInvoicesParams, enabled = true) {
@@ -150,71 +156,18 @@ export function useRecordPayment() {
   });
 }
 
+export function useEmailReceipt() {
+  return useMutation({
+    mutationFn: (paymentId: string) => api.emailReceipt(paymentId),
+  });
+}
+
 export function useVoidPayment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ paymentId, reason }: { paymentId: string; reason: string; studentId?: string }) =>
       api.voidPayment(paymentId, reason),
     onSuccess: (_data, variables) => invalidateStudentFees(queryClient, variables.studentId),
-  });
-}
-
-// -------------------------------------------------------------- discounts --
-
-export function useDiscounts() {
-  return useQuery({
-    queryKey: discountsKey,
-    queryFn: () => api.listDiscounts({ pageSize: 100 }),
-  });
-}
-
-export function useCreateDiscount() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: DiscountCreate) => api.createDiscount(payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: discountsKey }),
-  });
-}
-
-export const studentDiscountsKey = (params: api.ListStudentDiscountsParams) =>
-  ["fees", "student-discounts", params] as const;
-
-export function useStudentDiscounts(params: api.ListStudentDiscountsParams = {}) {
-  return useQuery({
-    queryKey: studentDiscountsKey(params),
-    queryFn: () => api.listStudentDiscounts({ pageSize: 100, ...params }),
-  });
-}
-
-export function useApplyDiscountToStudent() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ discountId, studentId }: { discountId: string; studentId: string }) =>
-      api.applyDiscountToStudent(discountId, studentId),
-    onSuccess: (_data, variables) => invalidateStudentFees(queryClient, variables.studentId),
-  });
-}
-
-export function useApproveStudentDiscount() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (studentDiscountId: string) => api.approveStudentDiscount(studentDiscountId),
-    onSuccess: () => {
-      invalidateStudentFees(queryClient, undefined);
-      queryClient.invalidateQueries({ queryKey: ["fees", "student-discounts"] });
-    },
-  });
-}
-
-export function useRejectStudentDiscount() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ studentDiscountId, reason }: { studentDiscountId: string; reason?: string | null }) =>
-      api.rejectStudentDiscount(studentDiscountId, reason),
-    onSuccess: () => {
-      invalidateStudentFees(queryClient, undefined);
-      queryClient.invalidateQueries({ queryKey: ["fees", "student-discounts"] });
-    },
   });
 }
 
@@ -293,13 +246,6 @@ export function useFeeCreditLiabilityReport() {
   return useQuery({
     queryKey: ["fees", "reports", "credit-liability"] as const,
     queryFn: api.getFeeCreditLiabilityReport,
-  });
-}
-
-export function useDiscountUtilizationReport(params: { from_date?: string; to_date?: string }) {
-  return useQuery({
-    queryKey: ["fees", "reports", "discount-utilization", params] as const,
-    queryFn: () => api.getDiscountUtilizationReport(params),
   });
 }
 

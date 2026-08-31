@@ -36,6 +36,7 @@ from app.models.identity import Role, User
 from app.models.staff_management import Staff, StaffAssignment
 from app.models.student_information import Guardian, Student, StudentGuardian
 from app.services.audit_service import AuditService
+from app.services.settings_service import SettingsService
 
 logger = logging.getLogger("edumanage")
 
@@ -59,26 +60,73 @@ class NotificationTemplateRepository(BaseRepository[NotificationTemplate]):
 # ------------------------------------------------------------ email leg --
 
 
-def _send_email(to_address: str, subject: str, body: str) -> None:
-    """Thin SMTP wrapper (doc 10 feature 5, "email channel integration").
-    No real SMTP server exists in dev/test — callers must catch, never let
-    this raise past `NotificationService.send` (doc 10: "failed email
-    sends never block the in-app notification").
+def _email_setting(db: Session, key: str, env_fallback: str) -> str:
+    """A `system_settings` value if an admin has set one via the web UI,
+    otherwise the `.env` value — so existing env-configured deployments keep
+    working and new ones can be configured entirely from the browser.
     """
 
-    if not settings.smtp_host:
-        raise RuntimeError("SMTP is not configured (smtp_host is empty).")
+    value = str(SettingsService(db).get(key, default="") or "").strip()
+    return value if value else env_fallback
+
+
+def email_is_configured(db: Session) -> bool:
+    """Email is usable when the master switch is on and an SMTP host is set
+    (either in `system_settings` or `.env`)."""
+
+    if not SettingsService(db).get("email_enabled", default=True):
+        return False
+    return bool(_email_setting(db, "smtp_host", settings.smtp_host))
+
+
+def _send_email(
+    db: Session,
+    to_address: str,
+    subject: str,
+    body: str,
+    *,
+    attachments: list[tuple[str, bytes, str]] | None = None,
+) -> None:
+    """Thin SMTP wrapper (doc 10 feature 5, "email channel integration").
+    Config is read from `system_settings` (web-editable), falling back to
+    `.env`. Callers must catch, never let this raise past
+    `NotificationService.send` (doc 10: "failed email sends never block the
+    in-app notification").
+
+    `attachments` is a list of `(filename, content_bytes, mime_type)` — used
+    by the fee module to email a receipt PDF alongside the message body.
+    `mime_type` is a full type like `"application/pdf"`.
+    """
+
+    if not email_is_configured(db):
+        raise RuntimeError("Email is not configured (set it up under System Settings → Email).")
+
+    settings_service = SettingsService(db)
+    host = _email_setting(db, "smtp_host", settings.smtp_host)
+    port_raw = settings_service.get("smtp_port", default=None)
+    port = int(port_raw) if port_raw not in (None, "") else settings.smtp_port
+    username = _email_setting(db, "smtp_username", settings.smtp_username)
+    password = _email_setting(db, "smtp_password", settings.smtp_password)
+    from_address = _email_setting(db, "smtp_from_address", settings.smtp_from_address)
+    use_tls = bool(settings_service.get("smtp_use_tls", default=True))
 
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = settings.smtp_from_address
+    message["From"] = from_address
     message["To"] = to_address
     message.set_content(body)
 
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
-        if settings.smtp_username:
+    for filename, content, mime_type in attachments or []:
+        maintype, _, subtype = mime_type.partition("/")
+        message.add_attachment(
+            content, maintype=maintype or "application", subtype=subtype or "octet-stream", filename=filename
+        )
+
+    with smtplib.SMTP(host, port, timeout=10) as smtp:
+        if use_tls:
             smtp.starttls()
-            smtp.login(settings.smtp_username, settings.smtp_password)
+        if username:
+            smtp.login(username, password)
         smtp.send_message(message)
 
 
@@ -203,7 +251,7 @@ class NotificationService:
                 try:
                     if user is None or not user.email:
                         raise RuntimeError("Recipient has no email address on file.")
-                    _send_email(user.email, title, body)
+                    _send_email(db, user.email, title, body)
                     notification.status = "sent"
                 except Exception:
                     logger.exception("Notification email delivery failed for user_id=%s", user_id)

@@ -13,21 +13,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/shared/date-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ReportExportMenu } from "@/components/fees/report-export-menu";
 import { useAcademicLabels } from "@/hooks/use-academic-labels";
 import { useCurrencyCode } from "@/hooks/use-currency";
 import {
   useCashUpReport,
-  useDiscountUtilizationReport,
   useFeeCollectionReport,
   useFeeCreditLiabilityReport,
 } from "@/hooks/use-fees";
+import {
+  cashUpReportExportPath,
+  feeCollectionReportExportPath,
+  feeCreditLiabilityReportExportPath,
+} from "@/lib/api/fee-financial";
 import { PAYMENT_METHOD_LABELS, labelFor } from "@/lib/display/fees";
 import { formatMoney } from "@/lib/money";
-import type {
-  CashUpReportRow,
-  DiscountUtilizationRow,
-  FeeCollectionReportRow,
-} from "@/lib/schemas/fee-financial";
+import type { CashUpReportRow, FeeCollectionReportRow } from "@/lib/schemas/fee-financial";
 
 function todayIso() {
   return format(new Date(), "yyyy-MM-dd");
@@ -43,10 +44,11 @@ function CollectionRateTab() {
     { type: "select", name: "class_id", label: "Class", options: classOptions, placeholder: "All classes" },
   ];
 
-  const { data, isLoading, isError, error, refetch } = useFeeCollectionReport({
+  const reportParams = {
     term_id: (filters.term_id as string) || undefined,
     class_id: (filters.class_id as string) || undefined,
-  });
+  };
+  const { data, isLoading, isError, error, refetch } = useFeeCollectionReport(reportParams);
 
   const columns: ColumnDef<FeeCollectionReportRow, unknown>[] = [
     { id: "term", header: "Term", cell: ({ row }) => (row.original.term_id ? termShortLabel.get(row.original.term_id) : null) ?? "All terms" },
@@ -62,12 +64,19 @@ function CollectionRateTab() {
 
   return (
     <div className="space-y-4">
-      <FilterBar
-        fields={filterFields}
-        values={filters}
-        onChange={(name, value) => setFilters((prev) => ({ ...prev, [name]: value }))}
-        onClear={() => setFilters({})}
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <FilterBar
+          fields={filterFields}
+          values={filters}
+          onChange={(name, value) => setFilters((prev) => ({ ...prev, [name]: value }))}
+          onClear={() => setFilters({})}
+        />
+        <ReportExportMenu
+          fileName="fee-collection-report"
+          buildPath={(f) => feeCollectionReportExportPath(reportParams, f)}
+          disabled={isLoading}
+        />
+      </div>
       <DataTable
         columns={columns}
         data={data}
@@ -90,50 +99,30 @@ function CreditLiabilityTab() {
   if (isError) return <ErrorState error={error} title="Couldn't load credit liability" onRetry={() => refetch()} />;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardDescription>Total carried-forward credit</CardDescription>
-          <CardTitle className="text-2xl tabular-nums">
-            {formatMoney(data?.total_available_credit_cents ?? 0, currencyCode)}
-          </CardTitle>
-        </CardHeader>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardDescription>Students with a credit balance</CardDescription>
-          <CardTitle className="text-2xl tabular-nums">{data?.credit_count ?? 0}</CardTitle>
-        </CardHeader>
-      </Card>
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <ReportExportMenu
+          fileName="credit-liability-report"
+          buildPath={(f) => feeCreditLiabilityReportExportPath(f)}
+        />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardDescription>Total carried-forward credit</CardDescription>
+            <CardTitle className="text-2xl tabular-nums">
+              {formatMoney(data?.total_available_credit_cents ?? 0, currencyCode)}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>Students with a credit balance</CardDescription>
+            <CardTitle className="text-2xl tabular-nums">{data?.credit_count ?? 0}</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
     </div>
-  );
-}
-
-function DiscountUtilizationTab() {
-  const { data, isLoading, isError, error, refetch } = useDiscountUtilizationReport({});
-  const currencyCode = useCurrencyCode();
-
-  const columns: ColumnDef<DiscountUtilizationRow, unknown>[] = [
-    { accessorKey: "discount_name", header: "Discount" },
-    { accessorKey: "discount_type", header: "Type" },
-    { accessorKey: "approved_count", header: "Approved count" },
-    {
-      id: "total",
-      header: "Total granted",
-      cell: ({ row }) => formatMoney(row.original.total_discount_cents, currencyCode),
-    },
-  ];
-
-  return (
-    <DataTable
-      columns={columns}
-      data={data}
-      isLoading={isLoading}
-      isError={isError}
-      error={error}
-      onRetry={() => refetch()}
-      emptyTitle="No discounts approved yet"
-    />
   );
 }
 
@@ -152,11 +141,16 @@ function CashUpTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="w-56 space-y-1.5">
           <label className="text-xs font-medium">Date</label>
           <DatePicker value={reportDate} onChange={(v) => setReportDate(v ?? todayIso())} />
         </div>
+        <ReportExportMenu
+          fileName={`cash-up-${reportDate}`}
+          buildPath={(f) => cashUpReportExportPath(reportDate, f)}
+          disabled={isLoading}
+        />
       </div>
       <DataTable
         columns={columns}
@@ -181,7 +175,7 @@ export default function FeeReportsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Financial Reports"
-        description="Collection rate, credit liability, discount utilization, and daily cash-up."
+        description="Collection rate, credit liability, and daily cash-up."
         actions={
           <Button asChild variant="outline">
             <Link href="/fees/invoices">Outstanding balances</Link>
@@ -193,7 +187,6 @@ export default function FeeReportsPage() {
         <TabsList>
           <TabsTrigger value="collection">Collection Rate</TabsTrigger>
           <TabsTrigger value="credit">Credit Liability</TabsTrigger>
-          <TabsTrigger value="discounts">Discount Utilization</TabsTrigger>
           <TabsTrigger value="cashup">Cash-up</TabsTrigger>
         </TabsList>
         <TabsContent value="collection" className="mt-4">
@@ -201,9 +194,6 @@ export default function FeeReportsPage() {
         </TabsContent>
         <TabsContent value="credit" className="mt-4">
           <CreditLiabilityTab />
-        </TabsContent>
-        <TabsContent value="discounts" className="mt-4">
-          <DiscountUtilizationTab />
         </TabsContent>
         <TabsContent value="cashup" className="mt-4">
           <CashUpTab />

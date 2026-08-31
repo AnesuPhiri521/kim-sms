@@ -21,9 +21,19 @@ export const INVOICE_STATUS_BADGE_VARIANT: Record<string, BadgeVariant> = {
   waived: "secondary",
 };
 
-/** Term Fee History rows use the same four statuses as invoices (minus `waived`). */
-export const TERM_STATUS_LABELS = INVOICE_STATUS_LABELS;
-export const TERM_STATUS_BADGE_VARIANT = INVOICE_STATUS_BADGE_VARIANT;
+/**
+ * Term Fee History rows use the invoice statuses plus `not_billed` — a term
+ * that exists on the calendar but has no invoice for this student yet (so it
+ * must never read as "Paid").
+ */
+export const TERM_STATUS_LABELS: Record<string, string> = {
+  ...INVOICE_STATUS_LABELS,
+  not_billed: "Not billed",
+};
+export const TERM_STATUS_BADGE_VARIANT: Record<string, BadgeVariant> = {
+  ...INVOICE_STATUS_BADGE_VARIANT,
+  not_billed: "outline",
+};
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: "Cash",
@@ -57,22 +67,10 @@ export const CREDIT_STATUS_BADGE_VARIANT: Record<string, BadgeVariant> = {
   refunded: "destructive",
 };
 
-export const DISCOUNT_STATUS_LABELS: Record<string, string> = {
-  pending: "Pending approval",
-  approved: "Approved",
-  rejected: "Rejected",
-};
-
-export const DISCOUNT_STATUS_BADGE_VARIANT: Record<string, BadgeVariant> = {
-  pending: "secondary",
-  approved: "default",
-  rejected: "destructive",
-};
-
 export const LEDGER_ENTRY_TYPE_LABELS: Record<string, string> = {
   charge: "Charge",
+  charge_reversal: "Charge reversed",
   payment: "Payment",
-  discount: "Discount",
   credit_applied: "Credit applied",
   credit_issued: "Credit issued",
   credit_refunded: "Credit refunded",
@@ -88,8 +86,8 @@ export const LEDGER_ENTRY_TYPE_LABELS: Record<string, string> = {
  */
 export const LEDGER_ENTRY_SIGN: Record<string, 1 | -1 | 0> = {
   charge: 1,
+  charge_reversal: -1,
   payment: -1,
-  discount: -1,
   credit_applied: -1,
   refund: 1,
   adjustment: 1,

@@ -78,6 +78,7 @@ class StudentRead(BaseModel):
     gender: str
     photo_url: str | None
     current_section_id: str | None
+    enrollment_term_id: str | None
     enrollment_status: str
     admission_date: date
     blood_group: str | None

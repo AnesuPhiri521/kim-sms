@@ -7,9 +7,12 @@ import { PageHeader } from "@/components/shared/page-header";
 import { DataTable } from "@/components/shared/data-table";
 import { FilterBar, type FilterField, type FilterValues } from "@/components/shared/filter-bar";
 import { Button } from "@/components/ui/button";
+import { RecordPaymentDialog } from "@/components/fees/record-payment-dialog";
+import { ReportExportMenu } from "@/components/fees/report-export-menu";
 import { useAcademicLabels } from "@/hooks/use-academic-labels";
 import { useCurrencyCode } from "@/hooks/use-currency";
 import { useOutstandingBalancesReport } from "@/hooks/use-fees";
+import { outstandingBalancesReportExportPath } from "@/lib/api/fee-financial";
 import { formatMoney } from "@/lib/money";
 import type { OutstandingBalanceRow } from "@/lib/schemas/fee-financial";
 
@@ -24,6 +27,7 @@ import type { OutstandingBalanceRow } from "@/lib/schemas/fee-financial";
  */
 export default function FeeInvoicesPage() {
   const [filters, setFilters] = useState<FilterValues>({});
+  const [payTarget, setPayTarget] = useState<{ studentId: string; studentName: string } | null>(null);
   const currencyCode = useCurrencyCode();
   const { termOptions, classOptions, sectionLabel } = useAcademicLabels();
 
@@ -61,7 +65,15 @@ export default function FeeInvoicesPage() {
       header: "",
       enableSorting: false,
       cell: ({ row }) => (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <Button
+            size="sm"
+            onClick={() =>
+              setPayTarget({ studentId: row.original.student_id, studentName: row.original.student_name })
+            }
+          >
+            Make payment
+          </Button>
           <Button asChild size="sm" variant="outline">
             <Link href={`/students/${row.original.student_id}`}>View student</Link>
           </Button>
@@ -75,6 +87,13 @@ export default function FeeInvoicesPage() {
       <PageHeader
         title="Outstanding Balances"
         description="Every student currently owing money, oldest-first allocation already applied — filter by term or class."
+        actions={
+          <ReportExportMenu
+            fileName="outstanding-balances"
+            buildPath={(f) => outstandingBalancesReportExportPath({ term_id: termId, class_id: classId }, f)}
+            disabled={isLoading}
+          />
+        }
       />
 
       <FilterBar
@@ -93,6 +112,16 @@ export default function FeeInvoicesPage() {
         onRetry={() => refetch()}
         emptyTitle="Nothing outstanding"
         emptyDescription="Every invoice in scope is fully paid, or there are no invoices yet."
+      />
+
+      <RecordPaymentDialog
+        studentId={payTarget?.studentId ?? ""}
+        studentName={payTarget?.studentName}
+        currencyCode={currencyCode}
+        open={payTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setPayTarget(null);
+        }}
       />
     </div>
   );

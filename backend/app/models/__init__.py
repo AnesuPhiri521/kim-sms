@@ -38,7 +38,6 @@ from app.models.examinations import (  # noqa: F401
     ReportCardComment,
 )
 from app.models.fee_financial import (  # noqa: F401
-    Discount,
     FeeCategory,
     FeeCredit,
     FeeCreditApplication,
@@ -48,7 +47,6 @@ from app.models.fee_financial import (  # noqa: F401
     FeePaymentAllocation,
     FeeStructure,
     Receipt,
-    StudentDiscount,
     StudentFeeOverride,
 )
 from app.models.identity import (  # noqa: F401

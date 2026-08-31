@@ -65,6 +65,15 @@ class GenerateInvoicesResult(BaseModel):
     invoices_skipped: int
 
 
+class ResyncEnrollmentFeesResult(BaseModel):
+    student_id: str
+    enrollment_term_id: str
+    invoices_reversed: int
+    amount_reversed_cents: int
+    invoices_created: int
+    invoices_skipped_with_activity: int
+
+
 # ----------------------------------------------------------------- overrides --
 
 
@@ -129,6 +138,15 @@ class FeePaymentAllocationRead(BaseModel):
     fee_payment_id: str
     fee_invoice_id: str
     amount_cents: int
+    term_id: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ReceiptRead(BaseModel):
+    id: str
+    receipt_no: str
+    issued_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -146,6 +164,7 @@ class FeePaymentRead(BaseModel):
     voided_at: datetime | None
     void_reason: str | None
     allocations: list[FeePaymentAllocationRead] = []
+    receipt: ReceiptRead | None = None
 
     model_config = {"from_attributes": True}
 
@@ -154,49 +173,8 @@ class VoidPaymentRequest(BaseModel):
     reason: str = Field(min_length=1)
 
 
-# --------------------------------------------------------------- discounts --
-
-
-class DiscountRead(BaseModel):
-    id: str
-    name: str
-    type: str
-    value: float
-    applies_to: str
-    requires_approval: bool
-    approval_threshold_cents: int | None
-    fee_category_id: str | None
-    fee_structure_id: str | None
-    is_active: bool
-
-    model_config = {"from_attributes": True}
-
-
-class DiscountCreate(BaseModel):
-    name: str
-    type: Literal["percentage", "fixed"]
-    value: float = Field(gt=0)
-    applies_to: Literal["category", "structure", "student"]
-    requires_approval: bool = False
-    approval_threshold_cents: int | None = None
-    fee_category_id: str | None = None
-    fee_structure_id: str | None = None
-
-
-class StudentDiscountRead(BaseModel):
-    id: str
-    student_id: str
-    discount_id: str
-    status: str
-    approved_by: str | None
-    approved_at: datetime | None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class ApproveRejectRequest(BaseModel):
-    reason: str | None = None
+class EmailReceiptResult(BaseModel):
+    sent_to: list[str]
 
 
 # ----------------------------------------------------------------- credits --
@@ -291,14 +269,6 @@ class OutstandingBalanceRow(BaseModel):
 class FeeCreditLiabilityReport(BaseModel):
     total_available_credit_cents: int
     credit_count: int
-
-
-class DiscountUtilizationRow(BaseModel):
-    discount_id: str
-    discount_name: str
-    discount_type: str
-    approved_count: int
-    total_discount_cents: int
 
 
 class CashUpReportRow(BaseModel):

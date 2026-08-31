@@ -163,6 +163,38 @@ def test_section_allocation_writes_history_and_enforces_capacity(
     assert history2.json()["data"][0]["promotion_status"] == "transferred"
 
 
+def test_registration_into_a_section_stamps_enrollment_term(
+    client: TestClient, login_as: Callable[[str], dict], academic_setup: dict, seeded_db: Session
+) -> None:
+    from app.models.academics_core import Term
+
+    term = Term(
+        id="term-current",
+        academic_year_id=academic_setup["year"].id,
+        term_number=2,
+        name="Term 2",
+        is_current=True,
+    )
+    seeded_db.add(term)
+    seeded_db.commit()
+
+    headers = login_as("registrar")
+    guardian = _create_guardian(client, headers, phone="0772000009")
+    with_section = _create_student(
+        client,
+        headers,
+        guardian["id"],
+        first_name="Placed",
+        current_section_id=academic_setup["section_b"].id,
+        academic_year_id=academic_setup["year"].id,
+    )
+    assert with_section["enrollment_term_id"] == "term-current"
+
+    guardian2 = _create_guardian(client, headers, phone="0772000010")
+    without_section = _create_student(client, headers, guardian2["id"], first_name="Unplaced")
+    assert without_section["enrollment_term_id"] is None
+
+
 # ---------------------------------------------------------------- withdrawal --
 
 

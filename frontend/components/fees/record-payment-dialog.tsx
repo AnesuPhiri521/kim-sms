@@ -25,17 +25,21 @@ import { ErrorState } from "@/components/shared/error-state";
 import { MoneyInput } from "@/components/fees/money-input";
 import { useEntityForm } from "@/hooks/use-entity-form";
 import { useAcademicLabels } from "@/hooks/use-academic-labels";
-import { useFeeInvoices, useRecordPayment } from "@/hooks/use-fees";
-import { ApiError } from "@/lib/api/client";
+import { useEmailReceipt, useFeeInvoices, useRecordPayment } from "@/hooks/use-fees";
+import { ApiError, downloadFile } from "@/lib/api/client";
+import { receiptDownloadPath } from "@/lib/api/fee-financial";
 import { PAYMENT_METHOD_LABELS, labelFor } from "@/lib/display/fees";
 import { dollarsToCents, formatMoney } from "@/lib/money";
 import {
   PAYMENT_METHODS,
   recordPaymentFormSchema,
   type FeeInvoice,
+  type FeePayment,
   type PaymentAllocationRequest,
   type RecordPaymentFormValues,
 } from "@/lib/schemas/fee-financial";
+
+const ALL_TERMS = "__all__";
 
 // Statuses that still owe money — the same set the server walks in
 // `record_payment`'s auto-allocation branch.
@@ -112,11 +116,16 @@ export function RecordPaymentDialog(props: RecordPaymentDialogProps) {
 
 function RecordPaymentForm({ studentId, studentName, onOpenChange, currencyCode }: RecordPaymentDialogProps) {
   const recordMutation = useRecordPayment();
-  const { termShortLabel } = useAcademicLabels();
+  const emailReceiptMutation = useEmailReceipt();
+  const { termShortLabel, termLabel } = useAcademicLabels();
   const [advanced, setAdvanced] = useState(false);
   const [allocations, setAllocations] = useState<AllocationDraft[]>([]);
   const [allocationError, setAllocationError] = useState<string | null>(null);
+  const [termFilter, setTermFilter] = useState<string>(ALL_TERMS);
   const [idempotencyKey, setIdempotencyKey] = useState<string>(newIdempotencyKey);
+  // Set once the payment succeeds — the dialog then shows the receipt actions
+  // instead of the form.
+  const [completed, setCompleted] = useState<FeePayment | null>(null);
 
   const form = useEntityForm(recordPaymentFormSchema, {
     amount: "",
@@ -132,13 +141,56 @@ function RecordPaymentForm({ studentId, studentName, onOpenChange, currencyCode 
     [invoices]
   );
 
+  // Distinct terms this student currently owes for, oldest invoice first — the
+  // "select a term to pay" list only appears when there's more than one.
+  const outstandingTerms = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const invoice of [...outstandingInvoices].sort((a, b) => a.due_date.localeCompare(b.due_date))) {
+      if (!seen.has(invoice.term_id)) {
+        seen.add(invoice.term_id);
+        ordered.push(invoice.term_id);
+      }
+    }
+    return ordered;
+  }, [outstandingInvoices]);
+
+  const showTermPicker = !advanced && outstandingTerms.length > 1;
+  const effectiveTermFilter = showTermPicker ? termFilter : ALL_TERMS;
+
   const amountValue = form.watch("amount");
   const amountCents = dollarsToCents(amountValue ?? "") ?? 0;
-  const preview = useMemo(() => previewAutoAllocation(invoices, amountCents), [invoices, amountCents]);
+  const previewInvoices = useMemo(
+    () =>
+      effectiveTermFilter === ALL_TERMS
+        ? invoices
+        : invoices.filter((invoice) => invoice.term_id === effectiveTermFilter),
+    [invoices, effectiveTermFilter]
+  );
+  const preview = useMemo(
+    () => previewAutoAllocation(previewInvoices, amountCents),
+    [previewInvoices, amountCents]
+  );
 
   function invoiceLabel(invoice: FeeInvoice): string {
     const term = termShortLabel.get(invoice.term_id) ?? "Unknown term";
     return `${term} · due ${invoice.due_date} · ${formatMoney(invoice.balance_cents, currencyCode)} outstanding`;
+  }
+
+  /** Oldest-first split of the amount across one term's outstanding invoices. */
+  function buildTermAllocations(totalCents: number, termId: string): PaymentAllocationRequest[] {
+    const built: PaymentAllocationRequest[] = [];
+    let remaining = totalCents;
+    const scoped = outstandingInvoices
+      .filter((invoice) => invoice.term_id === termId)
+      .sort((a, b) => (a.due_date === b.due_date ? a.created_at.localeCompare(b.created_at) : a.due_date.localeCompare(b.due_date)));
+    for (const invoice of scoped) {
+      if (remaining <= 0) break;
+      const applied = Math.min(remaining, invoice.balance_cents);
+      built.push({ fee_invoice_id: invoice.id, amount_cents: applied });
+      remaining -= applied;
+    }
+    return built;
   }
 
   /**
@@ -204,6 +256,11 @@ function RecordPaymentForm({ studentId, studentName, onOpenChange, currencyCode 
     if (advanced) {
       manual = buildManualAllocations(cents);
       if (manual === null) return;
+    } else if (effectiveTermFilter !== ALL_TERMS) {
+      // Target just the chosen term's invoices (oldest first). Anything left
+      // over once that term is settled becomes carried-forward credit.
+      manual = buildTermAllocations(cents, effectiveTermFilter);
+      if (manual.length === 0) manual = null;
     }
 
     try {
@@ -224,16 +281,83 @@ function RecordPaymentForm({ studentId, studentName, onOpenChange, currencyCode 
       // A new key for the next payment — the old one now maps to a stored
       // payment and must never be reused for a different one.
       setIdempotencyKey(newIdempotencyKey());
-      onOpenChange(false);
+      setCompleted(payment);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Failed to record payment");
     }
   }
 
+  async function handleEmailReceipt() {
+    if (!completed) return;
+    try {
+      const result = await emailReceiptMutation.mutateAsync(completed.id);
+      toast.success(`Receipt emailed to ${result.sent_to.join(", ")}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Couldn't email the receipt");
+    }
+  }
+
+  async function handlePrintReceipt() {
+    if (!completed?.receipt) return;
+    try {
+      await downloadFile(receiptDownloadPath(completed.receipt.id), `${completed.receipt.receipt_no}.pdf`);
+    } catch {
+      toast.error("Couldn't download the receipt");
+    }
+  }
+
+  if (completed) {
+    return (
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Payment recorded</DialogTitle>
+          <DialogDescription>
+            {formatMoney(completed.amount_cents, currencyCode)}
+            {studentName ? ` received for ${studentName}` : ""}
+            {completed.receipt ? ` · Receipt ${completed.receipt.receipt_no}` : ""}.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          {completed.allocations.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              Nothing was outstanding, so the full amount is now carried-forward credit on this account.
+            </p>
+          ) : null}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={handlePrintReceipt}
+              disabled={!completed.receipt}
+            >
+              Print / download receipt
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={handleEmailReceipt}
+              disabled={emailReceiptMutation.isPending}
+            >
+              {emailReceiptMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+              Email receipt to parent
+            </Button>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button type="button" onClick={() => onOpenChange(false)}>
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    );
+  }
+
   return (
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Record a payment</DialogTitle>
+          <DialogTitle>Make fees payment</DialogTitle>
           <DialogDescription>
             {studentName ? `For ${studentName}. ` : ""}
             By default the amount settles the oldest outstanding invoice first, then the next, and anything left
@@ -342,6 +466,31 @@ function RecordPaymentForm({ studentId, studentName, onOpenChange, currencyCode 
                   Advanced: choose invoices manually
                 </label>
               </div>
+
+              {showTermPicker ? (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Term to pay</Label>
+                  <Select value={termFilter} onValueChange={setTermFilter}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL_TERMS}>All terms — oldest first</SelectItem>
+                      {outstandingTerms.map((termId) => (
+                        <SelectItem key={termId} value={termId}>
+                          {termLabel.get(termId) ?? termShortLabel.get(termId) ?? "Unknown term"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {termFilter !== ALL_TERMS ? (
+                    <p className="text-muted-foreground text-xs">
+                      Only this term&apos;s invoices are settled. Anything left over after that becomes
+                      carried-forward credit.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               {invoicesQuery.isLoading ? (
                 <div className="space-y-2">
@@ -461,7 +610,11 @@ function RecordPaymentForm({ studentId, studentName, onOpenChange, currencyCode 
                   )}
                   {preview.creditCents > 0 && preview.lines.length > 0 ? (
                     <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-sm">
-                      <span>Left over after every outstanding invoice</span>
+                      <span>
+                        {effectiveTermFilter === ALL_TERMS
+                          ? "Left over after every outstanding invoice"
+                          : "Left over after this term's invoices"}
+                      </span>
                       <span className="flex items-center gap-2">
                         <span className="font-medium tabular-nums">
                           {formatMoney(preview.creditCents, currencyCode)}
@@ -492,7 +645,7 @@ function RecordPaymentForm({ studentId, studentName, onOpenChange, currencyCode 
                 {form.formState.isSubmitting || recordMutation.isPending ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : null}
-                Record payment
+                Make payment
               </Button>
             </DialogFooter>
           </form>

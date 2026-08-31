@@ -99,6 +99,16 @@ export const generateInvoicesResultSchema = z.object({
 });
 export type GenerateInvoicesResult = z.infer<typeof generateInvoicesResultSchema>;
 
+export const resyncEnrollmentFeesResultSchema = z.object({
+  student_id: z.string(),
+  enrollment_term_id: z.string(),
+  invoices_reversed: z.number().int(),
+  amount_reversed_cents: z.number().int(),
+  invoices_created: z.number().int(),
+  invoices_skipped_with_activity: z.number().int(),
+});
+export type ResyncEnrollmentFeesResult = z.infer<typeof resyncEnrollmentFeesResultSchema>;
+
 // --------------------------------------------------------------- invoices --
 
 export const feeInvoiceSchema = z.object({
@@ -129,8 +139,17 @@ export const feePaymentAllocationSchema = z.object({
   fee_payment_id: z.string(),
   fee_invoice_id: z.string(),
   amount_cents: z.number().int(),
+  /** Term of the invoice this slice settled — for "paid for" in payment history. */
+  term_id: z.string().nullable().default(null),
 });
 export type FeePaymentAllocation = z.infer<typeof feePaymentAllocationSchema>;
+
+export const receiptSchema = z.object({
+  id: z.string(),
+  receipt_no: z.string(),
+  issued_at: z.string(),
+});
+export type Receipt = z.infer<typeof receiptSchema>;
 
 export const feePaymentSchema = z.object({
   id: z.string(),
@@ -145,8 +164,14 @@ export const feePaymentSchema = z.object({
   voided_at: z.string().nullable(),
   void_reason: z.string().nullable(),
   allocations: z.array(feePaymentAllocationSchema).default([]),
+  receipt: receiptSchema.nullable().default(null),
 });
 export type FeePayment = z.infer<typeof feePaymentSchema>;
+
+export const emailReceiptResultSchema = z.object({
+  sent_to: z.array(z.string()),
+});
+export type EmailReceiptResult = z.infer<typeof emailReceiptResultSchema>;
 
 export type PaymentAllocationRequest = { fee_invoice_id: string; amount_cents: number };
 
@@ -171,94 +196,6 @@ export const voidPaymentFormSchema = z.object({
   reason: z.string().min(1, "A reason is required and is recorded in the audit log"),
 });
 export type VoidPaymentFormValues = z.infer<typeof voidPaymentFormSchema>;
-
-// -------------------------------------------------------------- discounts --
-
-export const DISCOUNT_TYPES = ["percentage", "fixed"] as const;
-export const DISCOUNT_APPLIES_TO = ["category", "structure", "student"] as const;
-
-export const discountSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  type: z.string(),
-  value: z.number(),
-  applies_to: z.string(),
-  requires_approval: z.boolean(),
-  approval_threshold_cents: z.number().int().nullable(),
-  fee_category_id: z.string().nullable(),
-  fee_structure_id: z.string().nullable(),
-  is_active: z.boolean(),
-});
-export type Discount = z.infer<typeof discountSchema>;
-
-export type DiscountCreate = {
-  name: string;
-  type: (typeof DISCOUNT_TYPES)[number];
-  value: number;
-  applies_to: (typeof DISCOUNT_APPLIES_TO)[number];
-  requires_approval?: boolean;
-  approval_threshold_cents?: number | null;
-  fee_category_id?: string | null;
-  fee_structure_id?: string | null;
-};
-
-/**
- * `value` means two different things depending on `type`: a percentage
- * (e.g. 25 = 25%) or a fixed *dollar* amount that must reach the API as
- * cents. The form keeps both as strings and the submit handler converts
- * only the fixed case through `dollarsToCents`.
- */
-export const discountFormSchema = z
-  .object({
-    name: z.string().min(1, "Discount name is required"),
-    type: z.enum(DISCOUNT_TYPES),
-    applies_to: z.enum(DISCOUNT_APPLIES_TO),
-    percentage_value: z.string(),
-    fixed_value: z.string(),
-    requires_approval: z.boolean(),
-    fee_category_id: z.string(),
-    fee_structure_id: z.string(),
-  })
-  .superRefine((values, ctx) => {
-    if (values.type === "percentage") {
-      const parsed = Number(values.percentage_value);
-      if (!values.percentage_value || Number.isNaN(parsed) || parsed <= 0 || parsed > 100) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["percentage_value"],
-          message: "Enter a percentage between 0 and 100",
-        });
-      }
-    } else {
-      const cents = dollarsToCents(values.fixed_value);
-      if (cents === null || cents <= 0) {
-        ctx.addIssue({ code: "custom", path: ["fixed_value"], message: "Enter an amount like 50 or 50.00" });
-      }
-    }
-    if (values.applies_to === "category" && !values.fee_category_id) {
-      ctx.addIssue({ code: "custom", path: ["fee_category_id"], message: "Pick the fee category this applies to" });
-    }
-    if (values.applies_to === "structure" && !values.fee_structure_id) {
-      ctx.addIssue({ code: "custom", path: ["fee_structure_id"], message: "Pick the fee structure this applies to" });
-    }
-  });
-export type DiscountFormValues = z.infer<typeof discountFormSchema>;
-
-export const studentDiscountSchema = z.object({
-  id: z.string(),
-  student_id: z.string(),
-  discount_id: z.string(),
-  status: z.string(),
-  approved_by: z.string().nullable(),
-  approved_at: z.string().nullable(),
-  created_at: z.string(),
-});
-export type StudentDiscount = z.infer<typeof studentDiscountSchema>;
-
-export const rejectDiscountFormSchema = z.object({
-  reason: z.string(),
-});
-export type RejectDiscountFormValues = z.infer<typeof rejectDiscountFormSchema>;
 
 // ----------------------------------------------------------------- credits --
 
@@ -293,8 +230,8 @@ export type RefundCreditFormValues = z.infer<typeof refundCreditFormSchema>;
 
 export const LEDGER_ENTRY_TYPES = [
   "charge",
+  "charge_reversal",
   "payment",
-  "discount",
   "credit_applied",
   "credit_issued",
   "credit_refunded",
@@ -359,15 +296,6 @@ export const feeCreditLiabilityReportSchema = z.object({
   credit_count: z.number().int(),
 });
 export type FeeCreditLiabilityReport = z.infer<typeof feeCreditLiabilityReportSchema>;
-
-export const discountUtilizationRowSchema = z.object({
-  discount_id: z.string(),
-  discount_name: z.string(),
-  discount_type: z.string(),
-  approved_count: z.number().int(),
-  total_discount_cents: z.number().int(),
-});
-export type DiscountUtilizationRow = z.infer<typeof discountUtilizationRowSchema>;
 
 export const cashUpReportRowSchema = z.object({
   report_date: z.string(),

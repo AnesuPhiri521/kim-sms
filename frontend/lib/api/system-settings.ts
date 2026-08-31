@@ -15,3 +15,11 @@ export async function updateSystemSetting(key: string, value: string): Promise<S
   });
   return systemSettingSchema.parse(data);
 }
+
+const testEmailResultSchema = z.object({ sent_to: z.string() });
+
+/** Sends a one-off message with the current SMTP settings to verify them. */
+export async function sendTestEmail(to: string): Promise<{ sent_to: string }> {
+  const data = await apiFetch<unknown>("/system-settings/email/test", { method: "POST", body: { to } });
+  return testEmailResultSchema.parse(data);
+}

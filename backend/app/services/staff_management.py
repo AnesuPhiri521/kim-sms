@@ -153,7 +153,7 @@ class StaffManagementService:
             employee_no=payload.employee_no,
             first_name=payload.first_name,
             last_name=payload.last_name,
-            department=payload.department,
+            department=payload.department or "",
             designation=payload.designation,
             qualification=payload.qualification,
             date_joined=payload.date_joined,
