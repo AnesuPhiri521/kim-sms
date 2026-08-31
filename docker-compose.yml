@@ -9,7 +9,7 @@ services:
       - backend_storage:/app/storage
       - backend_db:/data
     ports:
-      - "127.0.0.1:8010:8000"
+      - "127.0.0.1:8020:8000"
 
   frontend:
     build:
@@ -21,7 +21,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "127.0.0.1:3010:3000"
+      - "127.0.0.1:3020:3000"
 
 volumes:
   backend_storage:
