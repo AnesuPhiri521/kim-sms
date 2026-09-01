@@ -29,6 +29,25 @@ This installs any missing dependencies (including Python via `uv` for the backen
 
 Press `Ctrl+C` to stop both servers.
 
+### Windows without `uv`
+
+If `uv` can't be installed (blocked by organization policy, offline, etc.), use
+the uv-free launcher instead. It needs **Python 3.12+** and **Node.js 20.9+** on
+`PATH` and does the same setup with the stock `python -m venv` + `pip` for the
+backend:
+
+```bat
+start-manual.bat
+```
+
+This creates `backend\.venv`, installs `backend\requirements.txt`, applies
+migrations, seeds, then opens the backend and frontend each in their own window
+(close those windows to stop them). To run just one side afterwards:
+`scripts\run-backend.bat` or `scripts\run-frontend.bat`.
+
+Before the first run, set a real `ADMIN_PASSWORD` (and `JWT_SECRET_KEY`) in
+`backend\.env` — the seed step refuses the placeholder default.
+
 ## Scope: the 7 objectives
 
 Every screen and API in this codebase exists to serve one of these seven objectives — there is no unrelated functionality in scope. Each maps to a specific implementation phase (see [`docs/tasks.md`](docs/tasks.md) for the full build log):

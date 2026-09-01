@@ -1,0 +1,16 @@
+# Runtime dependencies for the backend, mirrored from pyproject.toml [project.dependencies].
+# Only needed when installing with plain pip instead of `uv sync`
+# (e.g. Windows machines where uv is blocked by organization policy).
+# Keep in sync with pyproject.toml.
+fastapi>=0.115
+uvicorn[standard]>=0.32
+sqlalchemy>=2.0.36
+alembic>=1.14
+pydantic[email]>=2.9
+pydantic-settings>=2.6
+pyjwt>=2.10
+bcrypt>=4.2
+python-multipart>=0.0.17
+apscheduler>=3.10
+fpdf2>=2.8
+openpyxl>=3.1.5
